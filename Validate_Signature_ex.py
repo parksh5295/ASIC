@@ -3,6 +3,7 @@
 import argparse
 import numpy as np
 import time
+import multiprocessing # Ensure multiprocessing is imported
 from Dataset_Choose_Rule.association_data_choose import file_path_line_signatures
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
@@ -35,10 +36,34 @@ KNOWN_FP_FILE = "known_high_fp_signatures.json" # Known FP signature save file
 RECALL_CONTRIBUTION_THRESHOLD = 0.1 # Threshold for whitelisting signatures
 NUM_FAKE_FP_SIGNATURES = 3 # Number of fake FP signatures to inject
 
+# Helper function for parallel calculation of single signature contribution
+def _calculate_single_signature_contribution(sig_id, alerts_df_subset_cols, anomalous_indices_set, total_anomalous_alerts_count):
+    """Calculates recall contribution for a single signature ID."""
+    # Recreate alerts_df from the necessary columns passed
+    # This is to avoid passing large DataFrames if only a subset is needed and pickling issues.
+    # However, alerts_df is filtered by sig_id, so passing the relevant part or whole might be fine.
+    # For simplicity here, assuming alerts_df_subset_cols is already filtered for the current sig_id OR we filter it here.
+    # The original code did: sig_alerts = alerts_df[alerts_df['signature_id'] == sig_id]
+    # This implies that alerts_df should be passed fully, or tasks should pre-filter.
+    # For starmap, it's better if the worker function gets exactly what it needs.
+    # Option 1: Pass full alerts_df and filter inside (less ideal for many tasks if alerts_df is huge)
+    # Option 2: Pre-filter alerts_df for each sig_id before making tasks (more setup but cleaner worker)
+
+    # Assuming alerts_df_subset_cols IS alerts_df (the full one, or a view with 'signature_id' and 'alert_index')
+    # This will be re-evaluated based on how tasks are prepared.
+    # For now, let's stick to the logic from the original loop:
+    sig_alerts = alerts_df_subset_cols[alerts_df_subset_cols['signature_id'] == sig_id]
+    
+    detected_by_sig = anomalous_indices_set.intersection(set(sig_alerts['alert_index']))
+    contribution = 0.0
+    if total_anomalous_alerts_count > 0:
+        contribution = len(detected_by_sig) / total_anomalous_alerts_count
+    return sig_id, contribution
+
 # ===== Helper Function: Calculate Recall Contribution Per Signature =====
 def calculate_recall_contribution(group_mapped_df, alerts_df, signature_map):
     """
-    Calculates the recall contribution for each signature.
+    Calculates the recall contribution for each signature using parallel processing.
 
     Args:
         group_mapped_df (pd.DataFrame): DataFrame with original data and 'label' column.
@@ -64,14 +89,45 @@ def calculate_recall_contribution(group_mapped_df, alerts_df, signature_map):
         print("Warning: No anomalous alerts found in group_mapped_df for recall contribution.")
         return {sig_id: 0.0 for sig_id in signature_map.keys()} # All contribute 0
 
-    print(f"\nCalculating recall contribution for {len(signature_map)} signatures...")
-    for sig_id in signature_map.keys():
-        sig_alerts = alerts_df[alerts_df['signature_id'] == sig_id]
-        detected_by_sig = anomalous_indices.intersection(set(sig_alerts['alert_index']))
-        contribution = len(detected_by_sig) / total_anomalous_alerts
+    print(f"\nCalculating recall contribution for {len(signature_map)} signatures using parallel processing...")
+
+    # Prepare tasks for parallel execution
+    # Each task will be (sig_id, alerts_df, anomalous_indices, total_anomalous_alerts)
+    # Pass alerts_df directly. Pandas DataFrames are picklable.
+    tasks = [
+        (sig_id, alerts_df[['signature_id', 'alert_index']], anomalous_indices, total_anomalous_alerts)
+        for sig_id in signature_map.keys()
+    ]
+
+    num_processes = multiprocessing.cpu_count()
+    print(f"Using {num_processes} processes for recall contribution calculation.")
+    
+    results = []
+    if tasks: # Proceed only if there are signatures to process
+        try:
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                # Results will be a list of (sig_id, contribution) tuples
+                results = pool.starmap(_calculate_single_signature_contribution, tasks)
+        except Exception as e:
+            print(f"An error occurred during parallel recall contribution calculation: {e}")
+            # Fallback to sequential calculation or return empty/partial
+            print("Falling back to sequential calculation for recall contribution...")
+            for sig_id in signature_map.keys():
+                sig_alerts = alerts_df[alerts_df['signature_id'] == sig_id]
+                detected_by_sig = anomalous_indices.intersection(set(sig_alerts['alert_index']))
+                contribution = 0.0
+                if total_anomalous_alerts > 0:
+                    contribution = len(detected_by_sig) / total_anomalous_alerts
+                recall_contributions[sig_id] = contribution
+                # Optional: print contribution per signature
+                # print(f"  - {sig_id}: {contribution:.4f} (sequential)")
+            return recall_contributions # Return sequentially computed results
+
+    # Populate recall_contributions from parallel results
+    for sig_id, contribution in results:
         recall_contributions[sig_id] = contribution
         # Optional: print contribution per signature
-        # print(f"  - {sig_id}: {contribution:.4f}")
+        # print(f"  - {sig_id}: {contribution:.4f} (parallel)")
 
     return recall_contributions
 # ====================================================================

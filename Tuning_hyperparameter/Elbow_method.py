@@ -7,6 +7,7 @@
 
 import numpy as np
 from Clustering_Method.common_clustering import get_clustering_function
+import multiprocessing # Added for parallel processing
 
 
 def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters, parameter_dict, GMM_type="normal"):   # X: Encoding and embedding, post-PCA, post-delivery
@@ -119,82 +120,41 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
             'best_parameter_dict': current_parameter_dict
         }
 
-    for k in cluster_range:
-        # Pass the current_parameter_dict to Elbow_choose_clustering_algorithm
-        # This dict contains reg_covar and other relevant params.
-        # Elbow_choose_clustering_algorithm will then extract relevant params for the specific pre_clustering_func.
-        clustering_result = Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, k, current_parameter_dict)
-        
-        # Ensure clustering_result is not None and contains 'before_labeling'
-        if clustering_result is None or 'before_labeling' not in clustering_result:
-            print(f"Warning: Clustering failed or returned unexpected result for k={k}. Skipping this k.")
-            # Assign a very high WCSS/low BIC to penalize this option, or handle as per strategy
-            # For simplicity, appending a value that will likely not be chosen as elbow
-            if clustering_algorithm in ['GMM', 'SGMM']:
-                 wcss_or_bic.append(np.inf) # For BIC, higher is worse (we negate later for elbow logic)
-            else:
-                 wcss_or_bic.append(np.inf) # For WCSS, higher is worse
-            continue
-            
-        clustering_model = clustering_result['before_labeling']
-        
-        # Attempt to fit the model. Catch LinAlgError for GMM/SGMM if reg_covar wasn't enough.
+    # Prepare tasks for parallel execution
+    tasks = []
+    for k_task in cluster_range:
+        tasks.append((k_task, data, X, clustering_algorithm, current_parameter_dict))
+
+    # This will store (k, score) tuples, possibly out of order from parallel execution
+    k_score_pairs = [] 
+
+    if tasks:
+        num_processes = min(len(tasks), multiprocessing.cpu_count())
+        print(f"[Elbow_method] Using {num_processes} processes for {len(tasks)} k-values.")
         try:
-            if not hasattr(clustering_model, 'fit_predict') and hasattr(clustering_model, 'fit'):
-                 clustering_model.fit(X) # Some models might only have fit, then labels are separate
-            # For models like GMM, fit() is usually called by fit_predict() if using pre_clustering
-            # If pre_clustering already did fit_predict, labels are in clustering_result['model_labels']
-            # The 'before_labeling' object should be the unfitted or partially fitted model for Elbow to work with.
-            # Let's assume pre_clustering returns a model instance that Elbow can call fit() or access inertia_/bic() on.
-            # If fit_predict was called in pre_clustering, inertia_/bic() might be available directly.
-            # For consistency, let's assume we need to fit here if it wasn't fully done for Elbow purposes.
-            # However, most pre_clustering functions for sklearn models do fit_predict.
-            # The current pre_clustering_SGMM does fit_predict. So sgmm model is already fit.
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                # pool.map will preserve order if tasks are ordered, 
+                # but _calculate_score_for_k returns (k, score) so we can sort later if needed.
+                # Using map as _calculate_score_for_k takes a single tuple argument.
+                k_score_pairs = pool.map(_calculate_score_for_k, tasks)
+        except Exception as e:
+            print(f"Error during parallel Elbow method processing: {e}. Falling back to sequential.")
+            # Fallback to sequential execution
+            k_score_pairs = [] # Clear partially filled results from try block
+            for k_seq in cluster_range:
+                _, score_seq = _calculate_score_for_k((k_seq, data, X, clustering_algorithm, current_parameter_dict)) # Call helper directly
+                k_score_pairs.append((k_seq, score_seq))
+    else:
+        print("[Elbow_method] No tasks to run for Elbow method (max_clusters might be < 2).")
+        # This case is also handled by the `if not cluster_range:` block earlier, 
+        # but good to have a log if tasks list is empty for other reasons.
 
-        except np.linalg.LinAlgError as e:
-            print(f"LinAlgError for k={k} with {clustering_algorithm}: {e}. Skipping this k.")
-            if clustering_algorithm in ['GMM', 'SGMM']:
-                 wcss_or_bic.append(np.inf)
-            else:
-                 wcss_or_bic.append(np.inf)
-            continue
-        except ValueError as e:
-            # Catching other ValueErrors, e.g. if X has too few samples for k clusters
-            print(f"ValueError for k={k} with {clustering_algorithm}: {e}. Skipping this k.")
-            if clustering_algorithm in ['GMM', 'SGMM']:
-                 wcss_or_bic.append(np.inf)
-            else:
-                 wcss_or_bic.append(np.inf)
-            continue
-
-        # Use appropriate score: inertia_ for KMeans-like, bic() for GMM/SGMM
-        score = None
-        if clustering_algorithm in ['GMM', 'SGMM']:
-            if hasattr(clustering_model, 'bic'):
-                score = clustering_model.bic(X)
-            else:
-                print(f"Warning: BIC not available for {clustering_algorithm} model at k={k}. Skipping score calculation.")
-        else:
-            if hasattr(clustering_model, 'inertia_'):
-                score = clustering_model.inertia_
-            else:
-                # For models like DBSCAN, MShift, XMeans, GMeans, NeuralGas that don't have inertia_
-                # We need a different metric for Elbow method. Silhouette score is an option but computationally expensive here.
-                # Or, these algorithms might not be suitable for Elbow if they auto-determine k or don't expose inertia/BIC.
-                # For now, if no inertia_, we can't use Elbow in its current form for these.
-                # This part of Elbow_method is primarily designed for KMeans and GMM/SGMM.
-                # Let's assume if it's not GMM/SGMM, it should have inertia_ or this Elbow logic is misapplied.
-                print(f"Warning: Inertia not available for {clustering_algorithm} model at k={k}. Skipping score calculation.")
-        
-        if score is not None:
-            wcss_or_bic.append(score)
-        else:
-            # If score could not be calculated, append a value that won't be chosen
-            if clustering_algorithm in ['GMM', 'SGMM']:
-                 wcss_or_bic.append(np.inf) 
-            else:
-                 wcss_or_bic.append(np.inf)
-
+    # Sort results by k to ensure wcss_or_bic is in the correct order for diff calculations
+    k_score_pairs.sort(key=lambda x: x[0])
+    
+    # Populate wcss_or_bic from sorted results
+    wcss_or_bic = [score for k_val, score in k_score_pairs]
+    
     if len(wcss_or_bic) < 2: # Need at least 2 points to calculate differences
         print("Warning: Not enough valid scores to determine elbow. Returning default k=2 or max_clusters if 1.")
         optimal_k = 2 if max_clusters >= 2 else max_clusters if max_clusters ==1 else 1 # Ensure k is at least 1
@@ -245,3 +205,48 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
         'optimul_cluster_n': optimal_k,
         'best_parameter_dict': current_parameter_dict # Return the potentially updated dict
     }
+
+# Helper function for Elbow_method parallel execution
+def _calculate_score_for_k(args_tuple):
+    \"\"\"Calculates WCSS/BIC score for a single k value.\"\"\"
+    k, data_local, X_local, clustering_algorithm_local, current_parameter_dict_local = args_tuple
+    score_val = np.inf # Default to a bad score
+
+    try:
+        # print(f"[DEBUG Elbow Worker] Processing k={k} for {clustering_algorithm_local}") # Optional worker debug
+        clustering_result = Elbow_choose_clustering_algorithm(data_local, X_local, clustering_algorithm_local, k, current_parameter_dict_local)
+        
+        if clustering_result is None or 'before_labeling' not in clustering_result:
+            print(f"Warning: Clustering failed or returned unexpected result for k={k}. Using inf score.")
+            return k, score_val # score_val is already np.inf
+            
+        clustering_model = clustering_result['before_labeling']
+        
+        # The original code had a try-except for fit here, but pre_clustering usually handles fit/fit_predict.
+        # We rely on inertia_ or bic() being available after Elbow_choose_clustering_algorithm.
+
+        temp_score = None
+        if clustering_algorithm_local in ['GMM', 'SGMM']:
+            if hasattr(clustering_model, 'bic'):
+                temp_score = clustering_model.bic(X_local)
+            else:
+                print(f"Warning: BIC not available for {clustering_algorithm_local} model at k={k}.")
+        else:
+            if hasattr(clustering_model, 'inertia_'):
+                temp_score = clustering_model.inertia_
+            else:
+                print(f"Warning: Inertia not available for {clustering_algorithm_local} model at k={k}.")
+        
+        if temp_score is not None:
+            score_val = temp_score
+            
+    except np.linalg.LinAlgError as e:
+        print(f"LinAlgError for k={k} with {clustering_algorithm_local}: {e}. Using inf score.")
+    except ValueError as e:
+        print(f"ValueError for k={k} with {clustering_algorithm_local}: {e}. Using inf score.")
+    except Exception as e:
+        # Catch any other unexpected errors from a specific k iteration
+        print(f"Unexpected error for k={k} with {clustering_algorithm_local}: {e}. Using inf score.")
+        
+    # print(f"[DEBUG Elbow Worker] Finished k={k}, score={score_val}") # Optional
+    return k, score_val

@@ -4,6 +4,46 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import random
+import multiprocessing # Added for parallel processing
+
+# Helper function for applying a single signature in parallel
+def _apply_single_signature_task(args):
+    df_subset, sig_info, df_columns = args # df_subset contains only necessary columns
+    sig_id = sig_info.get('id', 'UNKNOWN_ID')
+    
+    if 'rule_dict' not in sig_info or not isinstance(sig_info['rule_dict'], dict):
+        # print(f"Warning: Skipping signature {sig_id} due to missing or invalid 'rule_dict'.")
+        return sig_id, pd.Series(False, index=df_subset.index) # Return an all-False mask
+    
+    sig_condition_dict = sig_info['rule_dict']
+    if not sig_condition_dict:
+        # print(f"Info: Skipping signature {sig_id} because its rule_dict is empty.")
+        return sig_id, pd.Series(False, index=df_subset.index)
+
+    mask = pd.Series(True, index=df_subset.index)
+    valid_signature_for_mask = True
+    try:
+        for col, value in sig_condition_dict.items():
+            if col in df_columns: # Check against original df_columns passed to worker
+                col_series = df_subset[col]
+                if pd.api.types.is_numeric_dtype(col_series) and pd.api.types.is_numeric_dtype(value):
+                    mask &= (col_series.astype(float) == float(value))
+                elif pd.isna(value):
+                    mask &= col_series.isna()
+                else:
+                    mask &= col_series.eq(value)
+                if not mask.any():
+                    break
+            else:
+                # print(f"Warning: Column '{col}' (for sig {sig_id}) not in DataFrame subset. This signature won't match.")
+                valid_signature_for_mask = False
+                break
+        if not valid_signature_for_mask:
+            mask = pd.Series(False, index=df_subset.index)
+    except Exception as e:
+        # print(f"Error creating mask for signature {sig_id} in worker: {e}")
+        mask = pd.Series(False, index=df_subset.index)
+    return sig_id, mask
 
 # 1. Apply a signature to create an alert (Optimized Vectorized Version)
 def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 12, 0, 0)):
@@ -30,8 +70,9 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
                 label_col_name = col
 
     # Ensure input DataFrame index is unique if it's not already
+    original_df_index = df.index # Preserve original index
     if not df.index.is_unique:
-        print("Warning: DataFrame index is not unique. Resetting index.")
+        print("Warning: DataFrame index is not unique. Resetting index for processing.")
         df = df.reset_index(drop=True)
 
 
@@ -44,62 +85,53 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
     # Create signature_id and name mapping (pre-generate for faster lookup)
     sig_id_to_name = {s.get('id'): s.get('name', 'UNKNOWN_NAME') for s in signatures if s.get('id')}
 
+    # Prepare data subset for workers - select all unique keys from all signatures
+    all_sig_keys = set()
+    for sig_info in signatures:
+        if 'rule_dict' in sig_info and isinstance(sig_info['rule_dict'], dict):
+            all_sig_keys.update(sig_info['rule_dict'].keys())
+    
+    # Ensure all keys are actual columns in df
+    df_cols_for_worker = [key for key in all_sig_keys if key in df.columns]
+    if not df_cols_for_worker and all_sig_keys: # Some keys specified but none are in df
+        print("Warning: None of the keys specified in signature rules are present in the DataFrame. No alerts will be generated.")
+        return pd.DataFrame()
+    elif not df_cols_for_worker: # No keys in any signature rule_dict
+        print("Info: No rule keys found in any signature. No rule-based alerts will be generated.")
+        # Depending on desired behavior, could return empty or proceed if other alert types are possible
+        # For now, assume rule-based is primary, so return empty.
+        return pd.DataFrame()
+        
+    df_subset_for_workers = df[df_cols_for_worker].copy()
 
     # Iterate through each signature condition and apply vectorized approach
-    for sig_info in signatures:
-        sig_id = sig_info.get('id', 'UNKNOWN_ID') # Use .get for safety
+    # Parallel processing for applying signatures
+    tasks = [(df_subset_for_workers, sig_info, df_cols_for_worker) for sig_info in signatures]
+    
+    # Sort signatures by some criteria (e.g. complexity or specificity) if strict first-match priority is needed
+    # For now, we assume the order in `signatures` list is acceptable or that subsequent logic handles multiple matches if any.
 
-        # Check if 'rule_dict' key exists and is a dictionary
-        if 'rule_dict' not in sig_info or not isinstance(sig_info['rule_dict'], dict):
-             print(f"Warning: Skipping signature {sig_id} due to missing or invalid 'rule_dict'.")
-             continue
-        sig_condition_dict = sig_info['rule_dict']
-
-        # Skip if the condition is empty
-        if not sig_condition_dict:
-            # print(f"Info: Skipping signature {sig_id} because its rule_dict is empty.")
-            continue
-
-        # Create a mask to find rows that satisfy all conditions (column=value)
-        mask = pd.Series(True, index=df.index) # Start with all rows as True
-        valid_signature = True # Signature validity flag
+    if tasks:
+        num_processes = min(len(tasks), multiprocessing.cpu_count())
+        # print(f"[ApplySigs] Using {num_processes} processes for {len(tasks)} signatures.")
         try:
-            for col, value in sig_condition_dict.items():
-                if col in df.columns:
-                    # Safely handle NaN values (NaN != value, NaN != NaN)
-                    col_series = df[col] # Use original df for comparison
-                    if pd.api.types.is_numeric_dtype(col_series) and pd.api.types.is_numeric_dtype(value):
-                         # Compare numeric types safely
-                         mask &= (col_series.astype(float) == float(value))
-                    elif pd.isna(value):
-                         mask &= col_series.isna()
-                    else:
-                         # General comparison using eq
-                         mask &= col_series.eq(value)
-
-                    # If mask becomes all False, no need to check further conditions
-                    if not mask.any():
-                        break
-                else:
-                    print(f"Warning: Column '{col}' needed by signature {sig_id} not found in DataFrame. Skipping this signature for matching.")
-                    valid_signature = False
-                    break
-
-            if not valid_signature:
-                 mask = pd.Series(False, index=df.index)
-
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                # results_parallel is a list of (sig_id, mask_series)
+                results_parallel = pool.map(_apply_single_signature_task, tasks)
         except Exception as e:
-             print(f"Warning: Error creating mask for signature {sig_id}: {e}")
-             mask = pd.Series(False, index=df.index)
+            print(f"Error during parallel signature application: {e}. Falling back to sequential.")
+            results_parallel = [_apply_single_signature_task(task) for task in tasks]
 
-
-        # Record sig_id for rows that haven't matched any signature yet and satisfy current signature condition
-        if mask.any():
-            # Use temp_df for assigning match_sig_id
-            match_indices = temp_df.index[mask & temp_df['_match_sig_id'].isna()]
-            if not match_indices.empty:
-                temp_df.loc[match_indices, '_match_sig_id'] = sig_id
-
+        # Process parallel results to update temp_df['_match_sig_id']
+        # This needs to respect the "first match wins" logic implicitly handled by sequential iteration before.
+        # Iterate through results (which are in the original order of signatures)
+        for sig_id, sig_mask in results_parallel:
+            if sig_mask.any():
+                # Apply this signature's matches only to rows that haven't been matched yet
+                unmatched_and_current_match_indices = df.index[sig_mask & temp_df['_match_sig_id'].isna()]
+                if not unmatched_and_current_match_indices.empty:
+                    temp_df.loc[unmatched_and_current_match_indices, '_match_sig_id'] = sig_id
+    
     # Filter only matched alerts (Use temp_df to filter)
     alerts_df_raw = temp_df[temp_df['_match_sig_id'].notna()].copy()
     # Join back with original df to get necessary columns like labels
@@ -124,12 +156,14 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
     })
 
     # Copy label information from original data
+    # Use original_df_index if df was reset, to map back to original data if needed for labels
+    # However, alerts_df_raw.join(df[label_cols_present]) should handle this if df (with potentially reset index) was used.
+    # The crucial part is that alerts_df_raw.index aligns with what was used for the join.
     for col in label_cols_present:
          if col in alerts_df_raw.columns: # Check if column exists after join
             alerts_final[col] = alerts_df_raw[col].values
          else:
              print(f"Warning: Label column '{col}' not found in alerts_df_raw after join.")
-
 
     return alerts_final
 
@@ -175,14 +209,35 @@ def calculate_fp_scores(alerts_df: pd.DataFrame, attack_free_df: pd.DataFrame,
     # --- NRA Optimization Step 1: Sort DataFrame by timestamp BEFORE the loop ---
     print("Sorting alerts by timestamp for NRA calculation...")
     df.sort_values(by='timestamp', inplace=True)
-    # Use reset_index() to get a simple integer index for progress tracking if needed
-    # Keep original index in a column if it's meaningful and needed later
-    df_original_index = df.index # Store original index if needed
-    df.reset_index(drop=True, inplace=True) # Use simple 0-based index for iloc/iteration
+    df_original_index = df.index
+    df.reset_index(drop=True, inplace=True)
     n = len(df)
     print("Sorting finished.")
 
-    # --- 1. NRA Calculation (Using itertuples and pre-sorted data with searchsorted optimization) ---
+    # Helper for parallel NRA calculation
+    def _calculate_nra_for_alert_task(args_nra):
+        i_nra, t_i_nra, src_ip_i_nra, dst_ip_i_nra, all_timestamps_nra, all_src_ips_nra, all_dst_ips_nra, t0_nra_val, n0_nra_val_local = args_nra
+        
+        t_start_nra = t_i_nra - pd.Timedelta(seconds=t0_nra_val)
+        t_end_nra = t_i_nra + pd.Timedelta(seconds=t0_nra_val)
+
+        start_idx_nra = all_timestamps_nra.searchsorted(t_start_nra, side='left')
+        end_idx_nra = all_timestamps_nra.searchsorted(t_end_nra, side='right')
+
+        if start_idx_nra >= end_idx_nra:
+            nra_val = 0
+        else:
+            window_src_ips_nra = all_src_ips_nra.iloc[start_idx_nra:end_idx_nra]
+            window_dst_ips_nra = all_dst_ips_nra.iloc[start_idx_nra:end_idx_nra]
+            
+            src_match_mask_nra = np.logical_or(window_src_ips_nra == src_ip_i_nra, window_src_ips_nra == dst_ip_i_nra)
+            dst_match_mask_nra = np.logical_or(window_dst_ips_nra == src_ip_i_nra, window_dst_ips_nra == dst_ip_i_nra)
+            combined_ip_mask_nra = np.logical_or(src_match_mask_nra, dst_match_mask_nra)
+            nra_val = np.sum(combined_ip_mask_nra)
+            
+        return min(nra_val, n0_nra_val_local) / n0_nra_val_local
+
+    # --- 1. NRA Calculation (Parallelized) ---
     print("Calculating NRA scores (using itertuples with searchsorted)...")
     nra_scores = []
     # Need to make sure 'src_ip' and 'dst_ip' actually exist
@@ -198,44 +253,47 @@ def calculate_fp_scores(alerts_df: pd.DataFrame, attack_free_df: pd.DataFrame,
         src_ips = df['src_ip']
         dst_ips = df['dst_ip']
 
-        # Loop using index for iloc access (can be faster than itertuples for large data)
-        for i in range(n):
-            # Access data using iloc for potentially better performance
-            t_i = timestamps.iloc[i]
-            src_ip_i = src_ips.iloc[i]
-            dst_ip_i = dst_ips.iloc[i]
+        # Prepare tasks for parallel NRA calculation
+        nra_tasks = []
+        for i_task in range(n):
+            nra_tasks.append((
+                i_task, timestamps.iloc[i_task], src_ips.iloc[i_task], dst_ips.iloc[i_task],
+                timestamps, src_ips, dst_ips, # Pass the full series for windowing
+                t0_nra, n0_nra_to_use
+            ))
 
-            ip_set = {src_ip_i, dst_ip_i}
-            t_start = t_i - pd.Timedelta(seconds=t0_nra)
-            t_end = t_i + pd.Timedelta(seconds=t0_nra)
-
-            # Optimized window finding using searchsorted on sorted timestamps
-            start_idx = timestamps.searchsorted(t_start, side='left')
-            end_idx = timestamps.searchsorted(t_end, side='right')
-
-            if start_idx >= end_idx: # Optimization: window is empty
-                nra = 0
-            else:
-                # Slice the necessary IP columns for the window directly using iloc
-                window_src_ips = src_ips.iloc[start_idx:end_idx]
-                window_dst_ips = dst_ips.iloc[start_idx:end_idx]
-
-                # Check if src_ip or dst_ip matches the current row's IPs using NumPy
-                src_match_mask = np.logical_or(window_src_ips == src_ip_i, window_src_ips == dst_ip_i)
-                dst_match_mask = np.logical_or(window_dst_ips == src_ip_i, window_dst_ips == dst_ip_i)
-
-                # Combine masks: neighbor if either src or dst matches either IP
-                combined_ip_mask = np.logical_or(src_match_mask, dst_match_mask)
-
-                # Count neighbors directly from the boolean mask's sum
-                nra = np.sum(combined_ip_mask)
-
-            # Ensure append is inside the loop
-            nra_scores.append(min(nra, n0_nra_to_use) / n0_nra_to_use)
-
-            # Optional progress indicator using integer position 'i'
-            if (i + 1) % 50000 == 0: # Print less frequently
-                 print(f"  NRA progress: {i + 1}/{n}")
+        if nra_tasks:
+            num_processes_nra = min(len(nra_tasks), multiprocessing.cpu_count())
+            # print(f"[CalcFP NRA] Using {num_processes_nra} processes for {len(nra_tasks)} alerts.")
+            try:
+                with multiprocessing.Pool(processes=num_processes_nra) as pool:
+                    nra_scores = pool.map(_calculate_nra_for_alert_task, nra_tasks)
+            except Exception as e_nra:
+                print(f"Error during parallel NRA calculation: {e_nra}. Falling back to sequential.")
+                # Sequential fallback (original loop)
+                nra_scores = []
+                for i_seq in range(n):
+                    t_i_seq = timestamps.iloc[i_seq]
+                    src_ip_i_seq = src_ips.iloc[i_seq]
+                    dst_ip_i_seq = dst_ips.iloc[i_seq]
+                    t_start_seq = t_i_seq - pd.Timedelta(seconds=t0_nra)
+                    t_end_seq = t_i_seq + pd.Timedelta(seconds=t0_nra)
+                    start_idx_seq = timestamps.searchsorted(t_start_seq, side='left')
+                    end_idx_seq = timestamps.searchsorted(t_end_seq, side='right')
+                    if start_idx_seq >= end_idx_seq:
+                        nra_seq = 0
+                    else:
+                        window_src_ips_seq = src_ips.iloc[start_idx_seq:end_idx_seq]
+                        window_dst_ips_seq = dst_ips.iloc[start_idx_seq:end_idx_seq]
+                        src_match_mask_seq = np.logical_or(window_src_ips_seq == src_ip_i_seq, window_src_ips_seq == dst_ip_i_seq)
+                        dst_match_mask_seq = np.logical_or(window_dst_ips_seq == src_ip_i_seq, window_dst_ips_seq == dst_ip_i_seq)
+                        combined_ip_mask_seq = np.logical_or(src_match_mask_seq, dst_match_mask_seq)
+                        nra_seq = np.sum(combined_ip_mask_seq)
+                    nra_scores.append(min(nra_seq, n0_nra_to_use) / n0_nra_to_use)
+                    # Optional progress for sequential fallback
+                    # if (i_seq + 1) % 50000 == 0: print(f"  NRA sequential progress: {i_seq + 1}/{n}")
+        else: # No tasks
+            nra_scores = [0.0] * n # Or handle as appropriate for empty df
 
     # Assign after the loop completes
     df['nra_score'] = nra_scores

@@ -12,9 +12,15 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
     n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    parameter_dict = after_elbow['best_parameter_dict']
 
-    gmm, clusters = fit_gmm_with_retry(X, n_clusters, random_state=parameter_dict['random_state'])
+    n_init_val = parameter_dict.get('n_init', 1)
+    reg_covar_init_val = parameter_dict.get('reg_covar', 1e-6)
+
+    gmm, clusters = fit_gmm_with_retry(X, n_clusters, 
+                                       random_state=parameter_dict.get('random_state'),
+                                       n_init_val=n_init_val,
+                                       reg_covar_init=reg_covar_init_val)
     
     # Debug cluster id (X is the data used for clustering)
     print(f"\n[DEBUG GMM-normal main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
@@ -35,9 +41,15 @@ def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels):
 def clustering_GMM_full(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
     n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    parameter_dict = after_elbow['best_parameter_dict']
 
-    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='full', random_state=parameter_dict['random_state'])
+    n_init_val = parameter_dict.get('n_init', 1)
+    reg_covar_init_val = parameter_dict.get('reg_covar', 1e-6)
+
+    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='full', 
+                                       random_state=parameter_dict.get('random_state'),
+                                       n_init_val=n_init_val,
+                                       reg_covar_init=reg_covar_init_val)
     
     # Debug cluster id (X is the data used for clustering)
     print(f"\n[DEBUG GMM-full main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
@@ -58,9 +70,15 @@ def clustering_GMM_full(data, X, max_clusters, aligned_original_labels):
 def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
     n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    parameter_dict = after_elbow['best_parameter_dict']
 
-    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='tied', random_state=parameter_dict['random_state'])
+    n_init_val = parameter_dict.get('n_init', 1)
+    reg_covar_init_val = parameter_dict.get('reg_covar', 1e-6)
+
+    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='tied', 
+                                       random_state=parameter_dict.get('random_state'),
+                                       n_init_val=n_init_val,
+                                       reg_covar_init=reg_covar_init_val)
     
     # Debug cluster id (X is the data used for clustering)
     print(f"\n[DEBUG GMM-tied main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
@@ -81,9 +99,15 @@ def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels):
 def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
     n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    parameter_dict = after_elbow['best_parameter_dict']
 
-    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='diag', random_state=parameter_dict['random_state'])
+    n_init_val = parameter_dict.get('n_init', 1)
+    reg_covar_init_val = parameter_dict.get('reg_covar', 1e-6)
+
+    gmm, clusters = fit_gmm_with_retry(X, n_clusters, covariance_type='diag', 
+                                       random_state=parameter_dict.get('random_state'),
+                                       n_init_val=n_init_val,
+                                       reg_covar_init=reg_covar_init_val)
 
     # Debug cluster id (X is the data used for clustering)
     print(f"\n[DEBUG GMM-diag main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
@@ -124,8 +148,11 @@ def clustering_GMM(data, X, max_clusters, GMM_type, aligned_original_labels):
 
 # Precept Function for Clustering Count Tuning Loop
 
-def pre_clustering_GMM_normal(data, X, n_clusters, random_state):
-    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, random_state=random_state) # GMM_normal is usually spherical
+def pre_clustering_GMM_normal(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=1):
+    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, 
+                                           random_state=random_state, 
+                                           reg_covar_init=reg_covar,
+                                           n_init_val=n_init)
 
     # predict_GMM_normal = clustering_nomal_identify(data, cluster_labels, n_clusters)
     # num_clusters = len(np.unique(predict_GMM_normal))  # Counting the number of clusters
@@ -137,8 +164,11 @@ def pre_clustering_GMM_normal(data, X, n_clusters, random_state):
     }
 
 
-def pre_clustering_GMM_full(data, X, n_clusters, random_state):
-    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='full', random_state=random_state)
+def pre_clustering_GMM_full(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=1):
+    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='full', 
+                                           random_state=random_state, 
+                                           reg_covar_init=reg_covar,
+                                           n_init_val=n_init)
 
     # predict_GMM_full = clustering_nomal_identify(data, cluster_labels, n_clusters)
     # num_clusters = len(np.unique(predict_GMM_full))  # Counting the number of clusters
@@ -150,8 +180,11 @@ def pre_clustering_GMM_full(data, X, n_clusters, random_state):
     }
 
 
-def pre_clustering_GMM_tied(data, X, n_clusters, random_state):
-    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='tied', random_state=random_state)
+def pre_clustering_GMM_tied(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=1):
+    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='tied', 
+                                           random_state=random_state, 
+                                           reg_covar_init=reg_covar,
+                                           n_init_val=n_init)
 
     # predict_GMM_tied = clustering_nomal_identify(data, cluster_labels, n_clusters)
     # num_clusters = len(np.unique(predict_GMM_tied))  # Counting the number of clusters
@@ -163,8 +196,11 @@ def pre_clustering_GMM_tied(data, X, n_clusters, random_state):
     }
 
 
-def pre_clustering_GMM_diag(data, X, n_clusters, random_state):
-    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='diag', random_state=random_state)
+def pre_clustering_GMM_diag(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=1):
+    gmm, cluster_labels = fit_gmm_with_retry(X, n_clusters, covariance_type='diag', 
+                                           random_state=random_state, 
+                                           reg_covar_init=reg_covar,
+                                           n_init_val=n_init)
 
     # predict_GMM_diag = clustering_nomal_identify(data, cluster_labels, n_clusters)
     # num_clusters = len(np.unique(predict_GMM_diag))  # Counting the number of clusters
@@ -193,20 +229,21 @@ def pre_clustering_GMM(data, X, n_clusters, random_state, GMM_type):
 
 
 # Functions to automatically update reg_covar to avoid errors
-def fit_gmm_with_retry(X, n_components, covariance_type='full', random_state=None, max_reg_covar=100):
-    reg_covar = 1e-6
-    while reg_covar <= max_reg_covar:
+def fit_gmm_with_retry(X, n_components, covariance_type='full', random_state=None, reg_covar_init=1e-6, max_reg_covar_val=100, n_init_val=1):
+    reg_covar = reg_covar_init
+    while reg_covar <= max_reg_covar_val:
         try:
             gmm = GaussianMixture(
                 n_components=n_components,
                 covariance_type=covariance_type,
                 random_state=random_state,
-                reg_covar=reg_covar
+                reg_covar=reg_covar,
+                n_init=n_init_val
             )
             cluster_labels = gmm.fit_predict(X)
             return gmm, cluster_labels
         except ValueError as e:
-            print(f"[Warning] GMM ({covariance_type}) failed with reg_covar={reg_covar:.1e}: {e}")
+            print(f"[Warning] GMM ({covariance_type}, n_init={n_init_val}) failed with reg_covar={reg_covar:.1e}: {e}")
             reg_covar *= 10
 
-    raise ValueError(f"GMM ({covariance_type}) failed after trying reg_covar up to {max_reg_covar}")
+    raise ValueError(f"GMM ({covariance_type}, n_init={n_init_val}) failed after trying reg_covar up to {max_reg_covar_val}")

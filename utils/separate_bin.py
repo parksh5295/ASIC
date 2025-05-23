@@ -1,54 +1,114 @@
 # A collection of functions for splitting intervals
 
 import pandas as pd
+import multiprocessing # Added for parallel processing
 
+# Helper function for interval_length_same
+def _process_feature_same(args):
+    feature_name, series_data, bins_count, labels = args
+    try:
+        # Ensure series_data is a Series, not a DataFrame column slice that might cause issues
+        series_data_copy = series_data.copy()
+        binned_series = pd.cut(series_data_copy, bins=bins_count, labels=labels, right=True)
+        
+        unique_intervals = binned_series.dropna().unique()
+        # Sort intervals to ensure consistent mapping, especially if labels are not pre-sorted
+        # For numeric labels like range(1, N+1), sorting is implicitly handled by range.
+        # If labels could be arbitrary and unsorted, sorting unique_intervals before enumerate is safer.
+        interval_to_group = {interval: i for i, interval in enumerate(sorted(list(unique_intervals)))}
+        return feature_name, binned_series, interval_to_group
+    except Exception as e:
+        print(f"Error processing feature {feature_name} in _process_feature_same: {e}")
+        return feature_name, pd.Series(dtype='category'), {}
 
 def interval_length_same(df, features):
     if not features:
         raise ValueError("Error: The `features` list is empty.")
 
-    bin_df = pd.DataFrame()
     bins_count = 30
-    group_mapping_info = {}
     labels = range(1, bins_count + 1)
+    
+    tasks = []
+    for feature_name in features:
+        if feature_name not in df.columns:
+            raise KeyError(f"Error: Column `{feature_name}` does not exist in `df`.")
+        tasks.append((feature_name, df[feature_name], bins_count, labels))
 
-    for i in range(len(features)):
-        if features[i] not in df.columns:
-            raise KeyError(f"Error: Column `{features[i]}` does not exist in `df`.")
-        
-        bin_df[features[i]] = pd.cut(df[features[i]], bins=bins_count, labels=labels, right=True)
+    results_list = []
+    if tasks:
+        num_processes = min(len(tasks), multiprocessing.cpu_count())
+        # print(f"[interval_length_same] Using {num_processes} processes for {len(tasks)} features.")
+        try:
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                results_list = pool.map(_process_feature_same, tasks)
+        except Exception as e:
+            print(f"Error during parallel processing in interval_length_same: {e}. Falling back to sequential.")
+            results_list = [_process_feature_same(task) for task in tasks]
 
-        # Map indexes by bins -> to pass to mapping info later
-        unique_intervals = bin_df[features[i]].dropna().unique()
-        interval_to_group = {interval: i for i, interval in enumerate(sorted(unique_intervals))}
-        group_mapping_info[features[i]] = interval_to_group
+    bin_series_list = []
+    group_mapping_info = {}
+    for feature_name, binned_s, mapping in results_list:
+        if not binned_s.empty:
+            bin_series_list.append(binned_s.rename(feature_name))
+        if mapping:
+            group_mapping_info[feature_name] = mapping
+            
+    if not bin_series_list: # if all features failed or no features to process
+        return pd.DataFrame(), {}
 
+    bin_df = pd.concat(bin_series_list, axis=1)
     return bin_df, group_mapping_info
 
+# Helper function for interval_length_Inverse_Count
+def _process_feature_inverse(args):
+    feature_name, series_data, bins_count = args
+    try:
+        # Ensure series_data is a Series
+        series_data_copy = series_data.copy()
+        ranked_series = series_data_copy.rank(method="dense")
+        binned_series = pd.qcut(ranked_series, q=bins_count, labels=None, duplicates="drop")
+        
+        unique_intervals = binned_series.dropna().unique()
+        # Sort intervals to ensure consistent mapping. pd.Interval objects are sortable.
+        interval_to_group = {interval: i for i, interval in enumerate(sorted(list(unique_intervals)))}
+        return feature_name, binned_series, interval_to_group
+    except Exception as e:
+        print(f"Error processing feature {feature_name} in _process_feature_inverse: {e}")
+        return feature_name, pd.Series(dtype='category'), {}
 
 def interval_length_Inverse_Count(df, features):
     if not features:
         raise ValueError("Error: The `features` list is empty.")
 
-    bin_df = pd.DataFrame()
     bins_count = 30
+    
+    tasks = []
+    for feature_name in features:
+        if feature_name not in df.columns:
+            raise KeyError(f"Error: Column `{feature_name}` does not exist in `df`.")
+        tasks.append((feature_name, df[feature_name], bins_count))
+
+    results_list = []
+    if tasks:
+        num_processes = min(len(tasks), multiprocessing.cpu_count())
+        # print(f"[interval_length_Inverse_Count] Using {num_processes} processes for {len(tasks)} features.")
+        try:
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                results_list = pool.map(_process_feature_inverse, tasks)
+        except Exception as e:
+            print(f"Error during parallel processing in interval_length_Inverse_Count: {e}. Falling back to sequential.")
+            results_list = [_process_feature_inverse(task) for task in tasks]
+            
+    bin_series_list = []
     group_mapping_info = {}
+    for feature_name, binned_s, mapping in results_list:
+        if not binned_s.empty:
+            bin_series_list.append(binned_s.rename(feature_name))
+        if mapping:
+            group_mapping_info[feature_name] = mapping
 
-    for i in range(len(features)):
-        if features[i] not in df.columns:
-            raise KeyError(f"Error: Column `{features[i]}` does not exist in `df`.")
+    if not bin_series_list: # if all features failed or no features to process
+        return pd.DataFrame(), {}
         
-        '''
-        print(df[features[i]].describe())  # Check data distribution
-        print(df[features[i]].value_counts())  # Check value frequency
-        '''
-        df[features[i]] = df[features[i]].rank(method="dense")  # Use rank() to sort the data first, then apply qcut
-        bin_df[features[i]] = pd.qcut(df[features[i]], q=bins_count, labels=None, duplicates="drop")    # Group names automatically match the number of bins
-        # If there are a lot of duplicate values, put them all in a group and treat them like categorical features.
-
-        # Map indexes by bins -> to pass to mapping info later
-        unique_intervals = bin_df[features[i]].dropna().unique()
-        interval_to_group = {interval: i for i, interval in enumerate(sorted(unique_intervals))}
-        group_mapping_info[features[i]] = interval_to_group
-
+    bin_df = pd.concat(bin_series_list, axis=1)
     return bin_df, group_mapping_info

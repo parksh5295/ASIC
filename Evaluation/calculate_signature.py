@@ -3,29 +3,86 @@
 
 import pandas as pd
 import numpy as np
+import multiprocessing # Added for parallel processing
 
+# Helper function for parallel signature calculation
+def _calculate_single_signature_metrics(args):
+    data_subset, signature = args
+    # Ensure all keys in signature exist in data_subset columns to avoid KeyError during .eq()
+    # This might be overly cautious if data is guaranteed to have all keys, 
+    # but helps if signatures can have keys not in data (though that implies a problem upstream)
+    valid_signature_keys = [k for k in signature.keys() if k in data_subset.columns]
+    if not valid_signature_keys: # or if set(signature.keys()) != set(valid_signature_keys):
+        # Handle cases where signature keys are not in data, or are empty.
+        # This indicates an issue, perhaps log it. For now, return zero metrics.
+        # print(f"Warning: Signature {signature} has keys not in data or is effectively empty against data. Skipping.")
+        return {
+            'Signature_dict': signature,
+            'TP': 0, 'TN': 0, 'FP': 0, 'FN': 0
+        }
+
+    # Proceed with calculation only using valid keys present in the data
+    # Create a filtered signature for the .eq() comparison
+    filtered_signature_for_comparison = {k: signature[k] for k in valid_signature_keys}
+
+    # It is crucial that data_subset passed to this worker function already has the 'label' column.
+    # Ensure data[valid_signature_keys] doesn't create an empty DataFrame if valid_signature_keys is empty.
+    # The check for `if not valid_signature_keys:` above should handle this.
+    matches = data_subset[valid_signature_keys].eq(pd.Series(filtered_signature_for_comparison)).all(axis=1)
+
+    # Calculate TP, FN, FP, TN
+    TP = ((matches) & (data_subset['label'] == 1)).sum()
+    FN = ((~matches) & (data_subset['label'] == 1)).sum()
+    FP = ((matches) & (data_subset['label'] == 0)).sum()
+    TN = ((~matches) & (data_subset['label'] == 0)).sum()
+
+    return {
+        'Signature_dict': signature,
+        'TP': TP,
+        'TN': TN,
+        'FP': FP,
+        'FN': FN
+    }
 
 def calculate_signature(data, signatures):
-    results = []    # list for save the results
-    # Inspect each row in the DataFrame for each condition dictionary
-    for signature in signatures:
-        matches = data[list(signature.keys())].eq(pd.Series(signature)).all(axis=1)  # Conditions are met
+    if not signatures: # Handle empty signatures list
+        return []
 
-        # Calculate TP, FN, FP, TN
-        TP = ((matches) & (data['label'] == 1)).sum()
-        FN = ((~matches) & (data['label'] == 1)).sum()
-        FP = ((matches) & (data['label'] == 0)).sum()
-        TN = ((~matches) & (data['label'] == 0)).sum()
+    # Prepare data for workers: select all unique keys from all signatures plus 'label'
+    # This avoids sending the whole dataframe `data` to each worker if it's very wide.
+    all_signature_keys = set()
+    for sig in signatures:
+        all_signature_keys.update(sig.keys())
+    
+    columns_to_select = list(all_signature_keys)
+    if 'label' not in columns_to_select:
+        columns_to_select.append('label')
+    
+    # Ensure all selected columns actually exist in the input dataframe `data`
+    existing_columns_in_data = [col for col in columns_to_select if col in data.columns]
+    if not existing_columns_in_data or 'label' not in existing_columns_in_data:
+        # print("Warning: 'label' column or critical signature columns missing from data in calculate_signature. Returning empty results.")
+        return [{'Signature_dict': sig, 'TP': 0, 'TN': 0, 'FP': 0, 'FN': 0} for sig in signatures] # Or handle error appropriately
 
-        # Store the signature itself (instead of Condition_N)
-        results.append({
-            'Signature_dict': signature,  # Storing the actual signature dictionary
-            'TP': TP, 
-            'TN': TN, 
-            'FP': FP, 
-            'FN': FN
-        })    
+    data_subset_for_processing = data[existing_columns_in_data].copy() # Use .copy() to avoid SettingWithCopyWarning on slices if data is a slice
 
+    tasks = [(data_subset_for_processing, sig) for sig in signatures]
+    results = []
+
+    if tasks:
+        num_processes = min(len(tasks), multiprocessing.cpu_count())
+        # print(f"[CalcSig] Using {num_processes} processes for {len(tasks)} signatures.")
+        try:
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                results = pool.map(_calculate_single_signature_metrics, tasks)
+        except Exception as e:
+            print(f"Error during parallel signature calculation: {e}. Falling back to sequential.")
+            # Fallback to sequential processing
+            results = []
+            for sig in signatures:
+                # In sequential fallback, pass the same data_subset_for_processing
+                results.append(_calculate_single_signature_metrics((data_subset_for_processing, sig)))
+    
     return results
 
 

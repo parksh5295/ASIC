@@ -1,3 +1,13 @@
+import multiprocessing # Added for parallel processing
+
+
+# Helper function for NSL-KDD column validation (for parallel processing)
+def _is_nsl_kdd_column_valid(args):
+    col_name, series_data, threshold, min_distinct_frequent_values = args
+    value_counts = series_data.value_counts()
+    count_distinct_frequent = sum(1 for count in value_counts if count >= threshold)
+    return col_name, count_distinct_frequent >= min_distinct_frequent_values
+
 # Functions to proactively remove rare items
 def remove_rare_columns(df, min_support_ratio, file_type=None, min_distinct_frequent_values=2):
     '''
@@ -10,16 +20,30 @@ def remove_rare_columns(df, min_support_ratio, file_type=None, min_distinct_freq
     
     if file_type in ['NSL-KDD', 'NSL_KDD']:
         # NSL-KDD modified logic
-        original_cols = df.columns
+        original_cols = df.columns.tolist() # Ensure it's a list for multiprocessing tasks
         valid_cols = []
-        for col in original_cols:
-            value_counts = df[col].value_counts()
-            # Count the number of unique values above a threshold
-            count_distinct_frequent = sum(1 for count in value_counts if count >= threshold)
+        threshold = int(len(df) * min_support_ratio * 0.2) # Calculate threshold once
 
-            # Keep column only if there are at least min_distinct_frequent_values unique values above threshold
-            if count_distinct_frequent >= min_distinct_frequent_values:
-                valid_cols.append(col)
+        tasks = [(col, df[col], threshold, min_distinct_frequent_values) for col in original_cols]
+
+        if tasks:
+            num_processes = min(len(tasks), multiprocessing.cpu_count())
+            # print(f"[RemoveRare] Using {num_processes} processes for {len(tasks)} columns (NSL-KDD).")
+            try:
+                with multiprocessing.Pool(processes=num_processes) as pool:
+                    results = pool.map(_is_nsl_kdd_column_valid, tasks)
+                valid_cols = [col_name for col_name, is_valid in results if is_valid]
+            except Exception as e:
+                print(f"Error during parallel column validation (NSL-KDD): {e}. Falling back to sequential.")
+                # Fallback to sequential processing
+                valid_cols = []
+                for col in original_cols:
+                    value_counts = df[col].value_counts()
+                    count_distinct_frequent = sum(1 for count in value_counts if count >= threshold)
+                    if count_distinct_frequent >= min_distinct_frequent_values:
+                        valid_cols.append(col)
+        else: # No columns to process
+            valid_cols = original_cols # or empty list depending on desired behavior for empty df
 
         print(f"Original columns: {len(original_cols)}")
         print(f"Threshold value (for individual value frequency): {threshold}")

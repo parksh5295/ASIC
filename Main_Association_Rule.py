@@ -3,6 +3,8 @@
 import argparse
 import numpy as np
 import time
+import multiprocessing # Added for parallel processing
+import functools # Added for functools.partial if needed, though starmap is used here
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
@@ -19,6 +21,27 @@ from Modules.Difference_sets import dict_list_difference
 from Dataset_Choose_Rule.save_csv import csv_association
 from Dataset_Choose_Rule.time_save import time_save_csv_CS
 
+# Helper function for parallel processing
+def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit):
+    \"\"\"Processes a single iteration of the confidence loop.\"\"\"
+    print(f"Processing for min_confidence: {min_confidence}")
+    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
+    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
+    signatures = dict_list_difference(association_list_anomal, association_list_nomal)
+    signature_result = signature_evaluate(group_mapped_df, signatures)
+    signature_sets = under_limit(signature_result, signature_ea, precision_underlimit)
+    current_recall = calculate_signatures(group_mapped_df, signature_sets)
+
+    # Debug prints for this iteration (optional, can be removed for cleaner output)
+    print(f"  min_confidence: {min_confidence}")
+    print(f"    Anomal association rules: {len(association_list_anomal)}")
+    print(f"    Normal association rules: {len(association_list_nomal)}")
+    print(f"    Pure anomal signatures: {len(signatures)}")
+    print(f"    Evaluated signatures: {len(signature_result)}")
+    print(f"    Filtered signatures: {len(signature_sets) if signature_sets else 0}")
+    print(f"    Current recall: {current_recall}")
+
+    return min_confidence, current_recall, signature_sets
 
 def main():
     # argparser
@@ -182,54 +205,53 @@ def main():
 
     last_signature_sets = None
 
-    print("start")
+    print("Starting parallel processing for confidence values...")
 
-    for min_confidence in confidence_values:
-        association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
-        
-        print("1")
+    # Prepare arguments for the worker function
+    # These are constant across all iterations for min_confidence
+    static_args = (
+        anomal_grouped_data,
+        nomal_grouped_data,
+        Association_mathod,
+        min_support,
+        association_metric,
+        group_mapped_df,
+        signature_ea,
+        precision_underlimit
+    )
 
-        # Find a difference-set association group
-        association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
+    # Create a list of arguments for starmap: (min_confidence_value, *static_args)
+    # confidence_values is defined earlier as np.arange(0.1, 1.0, 0.05)
+    tasks = [(conf_val,) + static_args for conf_val in confidence_values]
 
-        print("2")
+    # Determine number of processes (e.g., number of CPU cores)
+    # You might want to adjust this based on your system and other running processes
+    num_processes = multiprocessing.cpu_count() 
+    print(f"Using {num_processes} processes for parallel execution.")
 
-        # A collection of pure anomalous signatures created with difference_set
-        signatures = dict_list_difference(association_list_anomal, association_list_nomal)
+    results = []
+    try:
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            # starmap blocks until all results are ready
+            # Each item in 'results' will be (min_confidence, current_recall, signature_sets)
+            results = pool.starmap(process_confidence_iteration, tasks)
+    except Exception as e:
+        print(f"An error occurred during parallel processing: {e}")
+        # Fallback or error handling, e.g., run sequentially or re-raise
+        # For now, just print and proceed, which might mean empty results
+        # depending on where the error occurred.
 
-        print("3")
-
-        # 6. Make Signature
-        signature_result = signature_evaluate(group_mapped_df, signatures) # Evaluation and score of each signature is available, LIST (internal DICT)
-        signature_sets = under_limit(signature_result, signature_ea, precision_underlimit)  # Collection of signatures before validating recall
-
-        print("4")
-
-        # 7. Evaluate association rule (Signature)
-        current_recall = calculate_signatures(group_mapped_df, signature_sets)  # Score of the final signature collection
-
-        print("5")
-
-        # Update the highest Recall value
-        if current_recall > best_recall:
-            best_recall = current_recall
-            best_confidence = min_confidence
-            last_signature_sets = signature_sets    # signatures in best_confidence
-
-        # association_list_anomal 생성 후
-        print("Anomal association rules:", len(association_list_anomal))
-
-        # association_list_nomal 생성 후
-        print("Normal association rules:", len(association_list_nomal))
-
-        # signatures 생성 후
-        print("Pure anomal signatures:", len(signatures))
-
-        # signature_result 생성 후
-        print("Evaluated signatures:", len(signature_result))
-
-        # signature_sets 생성 후
-        print("Filtered signatures:", len(signature_sets) if signature_sets else 0)
+    print("Parallel processing finished. Aggregating results...")
+    
+    # Process results to find the best one
+    if results: # Check if results were successfully populated
+        for res_min_confidence, res_current_recall, res_signature_sets in results:
+            if res_current_recall > best_recall:
+                best_recall = res_current_recall
+                best_confidence = res_min_confidence
+                last_signature_sets = res_signature_sets
+    else:
+        print("No results from parallel processing. Check for errors.")
 
 
     association_result = {
@@ -249,7 +271,7 @@ def main():
     timing_info['0_total_time'] = total_end_time - total_start_time
 
     # Save time information as a CSV
-    time_save_csv_CS(file_type, file_number, Association_mathod, timing_info)
+    time_save_csv_CS(file_type, file_number, Association_mathod, timing_info, best_confidence, min_support) # Added best_confidence and min_support for context in timing
 
 
     # mapped_info_file save

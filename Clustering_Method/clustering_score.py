@@ -1,6 +1,10 @@
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, jaccard_score, silhouette_score
 import numpy as np
+import multiprocessing # Added for parallel processing
 
+# Helper function to call the metric functions, useful for starmap
+def _calculate_metric_wrapper(metric_func, *args):
+    return metric_func(*args)
 
 def accuracy_basic(t, p):
     metric = accuracy_score(t, p)
@@ -51,18 +55,66 @@ def average_combination_wos(t, p, average):
 
 def evaluate_clustering(y_true, y_pred, X_data):
     if not y_true.empty:
-        return {
-            "average=macro": average_combination(y_true, y_pred, 'macro', X_data),
-            "average=micro": average_combination(y_true, y_pred, 'micro', X_data),
-            "average=weighted": average_combination(y_true, y_pred, 'weighted', X_data)
-        }
+        # Define tasks for parallel execution
+        # Each task is (function_to_call, y_true, y_pred, average_method, X_data)
+        # For average_combination_wos, X_data might be None or an empty placeholder if not used.
+        tasks = [
+            (average_combination, y_true, y_pred, 'macro', X_data),
+            (average_combination, y_true, y_pred, 'micro', X_data),
+            (average_combination, y_true, y_pred, 'weighted', X_data)
+        ]
+        
+        results_dict = {}
+        try:
+            # Use a Pool for parallel execution. 
+            # Limit processes if this function itself might be called in a parallelized loop.
+            # For now, let's use a small number or cpu_count().
+            # If evaluate_clustering is called many times, creating a Pool each time can be inefficient.
+            # Consider passing a Pool object if this is part of a larger parallel structure.
+            num_processes = min(len(tasks), multiprocessing.cpu_count()) # Avoid over-subscribing
+
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                # starmap will unpack the arguments for each task
+                # results will be a list of dictionaries returned by average_combination
+                parallel_results = pool.starmap(_calculate_metric_wrapper, tasks)
+            
+            # Reconstruct the results dictionary
+            results_dict["average=macro"] = parallel_results[0]
+            results_dict["average=micro"] = parallel_results[1]
+            results_dict["average=weighted"] = parallel_results[2]
+            
+        except Exception as e:
+            print(f"Error during parallel clustering evaluation: {e}. Falling back to sequential.")
+            # Fallback to sequential execution in case of error
+            results_dict["average=macro"] = average_combination(y_true, y_pred, 'macro', X_data)
+            results_dict["average=micro"] = average_combination(y_true, y_pred, 'micro', X_data)
+            results_dict["average=weighted"] = average_combination(y_true, y_pred, 'weighted', X_data)
+            
+        return results_dict
     return {}
 
 def evaluate_clustering_wos(y_true, y_pred):
     if not y_true.empty:
-        return {
-            "average=macro": average_combination_wos(y_true, y_pred, 'macro'),
-            "average=micro": average_combination_wos(y_true, y_pred, 'micro'),
-            "average=weighted": average_combination_wos(y_true, y_pred, 'weighted')
-        }
+        tasks = [
+            (average_combination_wos, y_true, y_pred, 'macro'),
+            (average_combination_wos, y_true, y_pred, 'micro'),
+            (average_combination_wos, y_true, y_pred, 'weighted')
+        ]
+        results_dict = {}
+        try:
+            num_processes = min(len(tasks), multiprocessing.cpu_count())
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                parallel_results = pool.starmap(_calculate_metric_wrapper, tasks)
+
+            results_dict["average=macro"] = parallel_results[0]
+            results_dict["average=micro"] = parallel_results[1]
+            results_dict["average=weighted"] = parallel_results[2]
+
+        except Exception as e:
+            print(f"Error during parallel clustering evaluation (wos): {e}. Falling back to sequential.")
+            results_dict["average=macro"] = average_combination_wos(y_true, y_pred, 'macro')
+            results_dict["average=micro"] = average_combination_wos(y_true, y_pred, 'micro')
+            results_dict["average=weighted"] = average_combination_wos(y_true, y_pred, 'weighted')
+            
+        return results_dict
     return {}
