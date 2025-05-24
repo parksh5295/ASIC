@@ -11,7 +11,7 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 def clustering_Kmeans(data, X, max_clusters, aligned_original_labels): # main clustering
     clustering_result_dict = loop_tuning(data, X, 'Kmeans', max_clusters)
-    n_clusters = clustering_result_dict['optimul_cluster_n']
+    n_clusters = clustering_result_dict['optimal_cluster_n']
     best_parameter_dict = clustering_result_dict['best_parameter_dict']
 
     kmeans = KMeans(n_clusters=n_clusters, random_state=best_parameter_dict['random_state'], n_init=best_parameter_dict['n_init'])

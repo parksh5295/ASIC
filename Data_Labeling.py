@@ -15,6 +15,7 @@ from utils.cluster_adjust_mapping import cluster_mapping
 from Clustering_Method.clustering_score import evaluate_clustering, evaluate_clustering_wos
 from Dataset_Choose_Rule.save_csv import csv_compare_clustering, csv_compare_matrix_clustering
 from Dataset_Choose_Rule.time_save import time_save_csv_VL
+from utils.minmaxscaler import apply_minmax_scaling_and_save_scalers
 
 
 def main():
@@ -52,7 +53,7 @@ def main():
 
     file_path, file_number = file_path_line_nonnumber(file_type, file_number)
     # cut_type = str(input("Enter the data cut type: "))
-    if file_type in ['DARPA98', 'DARPA', 'NSL-KDD', 'NSL_KDD', 'CICModbus23', 'CICModbus', 'MitM', 'Kitsune']:
+    if file_type in ['DARPA98', 'DARPA', 'NSL-KDD', 'NSL_KDD', 'CICModbus23', 'CICModbus', 'MitM', 'Kitsune', 'ARP']:
         cut_type = 'random'
     else:
         cut_type = 'all'
@@ -101,10 +102,21 @@ def main():
     timing_info['3_embedding'] = time.time() - start
 
 
+    # 3.5 Apply MinMaxScaler using the utility function
+    X_scaled_for_pca, saved_scaler_path = apply_minmax_scaling_and_save_scalers(
+        group_mapped_df,
+        file_type,
+        file_number,
+        heterogeneous_method
+        # base_output_dir can be specified if different from "results"
+    )
+    # Optionally, you can store saved_scaler_path if needed later, though it's printed by the function.
+    
+
     # 4. Numpy(hstack) processing and PCA
     start = time.time()
 
-    X = group_mapped_df
+    X = X_scaled_for_pca # Use scaled data for PCA
     columns_data = list(data.columns)
     columns_X = list(X.columns)
     diff_columns = list(set(columns_data) - set(columns_X))

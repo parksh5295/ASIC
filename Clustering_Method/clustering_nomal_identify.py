@@ -24,6 +24,21 @@ def clustering_nomal_identify(data_features_for_clustering, original_labels_alig
     if known_normal_samples_features.ndim == 2 and known_normal_samples_features.shape[0] > 0:
          print(f"[DEBUG CNI]   NumPy array - First 5 cols of first row: {known_normal_samples_features[0, :min(5, known_normal_samples_features.shape[1])] if known_normal_samples_features.shape[1] > 0 else '0 cols'}")
 
+    # Randomly sample 80% of known normal samples
+    num_known_normal_samples = known_normal_samples_features.shape[0]
+    if num_known_normal_samples > 1:
+        sample_size = int(num_known_normal_samples * 0.8)
+        if sample_size == 0 and num_known_normal_samples > 0 :
+            sample_size = 1
+        
+        random_indices = np.random.choice(num_known_normal_samples, size=sample_size, replace=False)
+        known_normal_samples_features = known_normal_samples_features[random_indices]
+        print(f"[DEBUG CNI] Randomly sampled 80% of known normal samples. New shape: {known_normal_samples_features.shape}")
+    elif num_known_normal_samples == 1:
+        print(f"[DEBUG CNI] Only one known normal sample. Using it without further sampling.")
+    else: 
+        print(f"[DEBUG CNI] No known normal samples to sample from.")
+
     # final_labels will have the same length as data_features_for_clustering and clusters_assigned
     final_labels = np.zeros(len(data_features_for_clustering), dtype=int) 
     threshold = 0.3

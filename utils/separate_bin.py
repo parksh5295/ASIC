@@ -25,7 +25,7 @@ def interval_length_same(df, features):
     if not features:
         raise ValueError("Error: The `features` list is empty.")
 
-    bins_count = 30
+    bins_count = 40
     labels = range(1, bins_count + 1)
     
     tasks = []
@@ -80,7 +80,7 @@ def interval_length_Inverse_Count(df, features):
     if not features:
         raise ValueError("Error: The `features` list is empty.")
 
-    bins_count = 30
+    bins_count = 40
     
     tasks = []
     for feature_name in features:

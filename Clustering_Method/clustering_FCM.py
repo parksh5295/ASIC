@@ -12,8 +12,8 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 def clustering_FCM(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'FCM', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    n_clusters = after_elbow['optimal_cluster_n']
+    parameter_dict = after_elbow['best_parameter_dict']
 
     # Fuzzy C-Means Clustering
     cntr, u, u0, d, jm, p, fpc = fuzz.cluster.cmeans(

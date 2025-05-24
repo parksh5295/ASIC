@@ -139,8 +139,8 @@ def ck_predict(X_new, cntr, cov_matrices, m=2):
 
 def clustering_CK(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'CK', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
-    parameter_dict = after_elbow['parameter_dict']
+    n_clusters = after_elbow['optimal_cluster_n']
+    parameter_dict = after_elbow['best_parameter_dict']
 
     # Perform Gustafson-Kessel Clustering; Performing with auto-tuned epsilon included
     ck_results = tune_epsilon_for_ck(X, c=n_clusters)

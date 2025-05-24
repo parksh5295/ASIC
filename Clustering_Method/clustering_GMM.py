@@ -11,7 +11,7 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
+    n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
     n_init_val = parameter_dict.get('n_init', 1)
@@ -40,7 +40,7 @@ def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels):
 
 def clustering_GMM_full(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
+    n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
     n_init_val = parameter_dict.get('n_init', 1)
@@ -69,7 +69,7 @@ def clustering_GMM_full(data, X, max_clusters, aligned_original_labels):
 
 def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
+    n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
     n_init_val = parameter_dict.get('n_init', 1)
@@ -98,7 +98,7 @@ def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels):
 
 def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels):
     after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
+    n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
     n_init_val = parameter_dict.get('n_init', 1)

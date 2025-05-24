@@ -116,7 +116,7 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
         # Handle edge case where max_clusters < 2
         print("Warning: max_clusters is less than 2. Elbow method requires at least 2 clusters. Returning default k=2.")
         return {
-            'optimul_cluster_n': 2,
+            'optimal_cluster_n': 2,
             'best_parameter_dict': current_parameter_dict
         }
 
@@ -160,7 +160,7 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
         optimal_k = 2 if max_clusters >= 2 else max_clusters if max_clusters ==1 else 1 # Ensure k is at least 1
         if max_clusters == 0 : optimal_k =1 # avoid k=0
         return {
-            'optimul_cluster_n': optimal_k,
+            'optimal_cluster_n': optimal_k,
             'best_parameter_dict': current_parameter_dict
         }
     
@@ -172,7 +172,7 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
         optimal_k = 2 if max_clusters >= 2 else max_clusters if max_clusters ==1 else 1
         if max_clusters == 0 : optimal_k =1
         return {
-            'optimul_cluster_n': optimal_k,
+            'optimal_cluster_n': optimal_k,
             'best_parameter_dict': current_parameter_dict
         }
 
@@ -202,7 +202,7 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
         optimal_k = cluster_range[optimal_k_index] # Convert index back to k value
 
     return {
-        'optimul_cluster_n': optimal_k,
+        'optimal_cluster_n': optimal_k,
         'best_parameter_dict': current_parameter_dict # Return the potentially updated dict
     }
 
