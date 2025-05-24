@@ -14,7 +14,7 @@ def time_save_csv_VL(file_type, file_number, clustering_algorithm, timing_info):
     - save_dir (str): Directory to save timing CSVs
     """
 
-    save_dir = f"../Dataset/time_log/virtual_labeling/{file_type}"
+    save_dir = f"../Dataset_Paral/time_log/virtual_labeling/{file_type}"
 
     # Ensure save directory exists
     os.makedirs(save_dir, exist_ok=True)
@@ -41,7 +41,7 @@ def time_save_csv_CS(file_type, file_number, Association_mathod, timing_info):
     Save timing information for each step and the total execution time to a CSV file.
     """
 
-    save_dir = f"../Dataset/time_log/condition_assocation/{file_type}"
+    save_dir = f"../Dataset_Paral/time_log/condition_assocation/{file_type}"
 
     # Ensure save directory exists
     os.makedirs(save_dir, exist_ok=True)
@@ -65,7 +65,7 @@ def time_save_csv_CS(file_type, file_number, Association_mathod, timing_info):
 
 # Save Validation signature time
 def time_save_csv_VS(file_type, file_number, Association_mathod, timing_info):
-    save_dir = f"../Dataset/time_log/validation_signature/{file_type}"
+    save_dir = f"../Dataset_Paral/time_log/validation_signature/{file_type}"
 
     # Ensure save directory exists
     os.makedirs(save_dir, exist_ok=True)

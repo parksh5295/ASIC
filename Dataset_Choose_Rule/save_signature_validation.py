@@ -32,7 +32,7 @@ def save_validation_results(file_type, file_number, association_rule, basic_eval
     """
     Save all evaluation results, including recall metrics and filtered eval, in a single CSV/JSON file
     """
-    save_path = f"../Dataset/validation/{file_type}/"
+    save_path = f"../Dataset_Paral/validation/{file_type}/"
     ensure_directory_exists(save_path)
 
     # Combine all results into a single dictionary

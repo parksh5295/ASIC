@@ -13,7 +13,7 @@ def ensure_directory_exists(directory):
 def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_type=None):
     row_compare_df = data[['cluster', 'adjusted_cluster', 'label']]
     
-    save_path = f"../Dataset/save_dataset/{file_type}/"
+    save_path = f"../Dataset_Paral/save_dataset/{file_type}/"
     ensure_directory_exists(save_path)  # Verify and create the folder
     
     if clusterint_method == "GMM":
@@ -27,7 +27,7 @@ def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_
 def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, metrics_original, metrics_adjusted, GMM_type):
     metrics_df = pd.DataFrame([metrics_original, metrics_adjusted], index=["Original", "Adjusted"])
     
-    save_path = f"../Dataset/save_dataset/{file_type}/"
+    save_path = f"../Dataset_Paral/save_dataset/{file_type}/"
     ensure_directory_exists(save_path)  # Verify and create the folder
     
     if clusterint_method == "GMM":
@@ -42,7 +42,7 @@ def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, met
 def csv_association(file_type, file_number, association_rule, association_result, association_metric, signature_ea):
     df = pd.DataFrame([association_result])
 
-    save_path = f"../Dataset/signature/{file_type}/"
+    save_path = f"../Dataset_Paral/signature/{file_type}/"
     ensure_directory_exists(save_path)  # Verify and create the folder
 
     file_path = f"{save_path}{file_type}_{association_rule}_{file_number}_{association_metric}_signature_train_ea{signature_ea}.csv"

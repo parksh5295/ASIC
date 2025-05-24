@@ -275,7 +275,7 @@ def main():
 
 
     # mapped_info_file save
-    mapped_info_file_path = f"../Dataset/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv"
+    mapped_info_file_path = f"../Dataset_Paral/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv"
     mapped_info_df.to_csv(mapped_info_file_path, index=False)
 
 
