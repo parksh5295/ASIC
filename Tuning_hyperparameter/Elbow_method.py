@@ -208,7 +208,7 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
 
 # Helper function for Elbow_method parallel execution
 def _calculate_score_for_k(args_tuple):
-    \"\"\"Calculates WCSS/BIC score for a single k value.\"\"\"
+    """Calculates WCSS/BIC score for a single k value."""
     k, data_local, X_local, clustering_algorithm_local, current_parameter_dict_local = args_tuple
     score_val = np.inf # Default to a bad score
 
