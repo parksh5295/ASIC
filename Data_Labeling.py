@@ -32,7 +32,8 @@ def main():
     parser.add_argument('--train_test', type=int, default=0)    # train = 0, test = 1
     parser.add_argument('--heterogeneous', type=str, default="Interval_inverse")   # Heterogeneous(Embedding) Methods
     parser.add_argument('--clustering', type=str, default="kmeans")   # Clustering Methods
-    parser.add_argument('--eval_clustering_silhouette', type=str, default="n")
+    parser.add_argument('--eval_clustering_silhouette', type=str, default="n", help="Evaluate with silhouette score (y/n)")
+    parser.add_argument('--autotune', type=str, default="y", help="Enable autotuning for clustering parameters (y/n)")
     parser.add_argument('--association', type=str, default="apriori")   # Association Rule
 
     # Save the above in args
@@ -44,7 +45,8 @@ def main():
     train_tset = args.train_test
     heterogeneous_method = args.heterogeneous
     clustering_algorithm = args.clustering
-    eval_clustering_silhouette = args.eval_clustering_silhouette
+    eval_clustering_silhouette_flag = args.eval_clustering_silhouette.lower() == 'y'
+    autotune_enabled = args.autotune.lower() == 'y'
     Association_mathod = args.association
 
     total_start_time = time.time()  # Start All Time
@@ -343,25 +345,31 @@ def main():
 
         print(f"Processing chunk {i+1}/{num_chunks}, samples {start_idx}-{end_idx-1}. Chunk shape: {current_chunk_data.shape}")
 
-        if eval_clustering_silhouette == 'y': # Autotune
+        gmm_type_chunk_result = None # To store GMM type from either path
+        if autotune_enabled: # Use the new autotune_enabled flag
             # Pass the current chunk data, its original labels, and the global PCA normals
-            clustering_result_dict, gmm_type_chunk = choose_clustering_algorithm(
-                data, # Original full data (might be needed by some hyperparam tuning, though ideally only chunked data used)
+            clustering_result_dict, gmm_type_chunk_result = choose_clustering_algorithm(
+                data, # Original full data
                 current_chunk_data, 
                 current_chunk_original_labels, 
                 clustering_algorithm, 
                 global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni
             )
-            all_chunk_gmm_types.append(gmm_type_chunk) # Collect GMM_type
         else: # Non-Autotune
-            clustering_result_dict, _ = choose_clustering_algorithm_Non_optimization(
-                data, # Original full data (see note above)
+            clustering_result_dict, gmm_type_chunk_result = choose_clustering_algorithm_Non_optimization(
+                data, # Original full data
                 current_chunk_data, 
                 current_chunk_original_labels, 
                 clustering_algorithm, 
                 global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni
             )
         
+        # Collect GMM type if it's a GMM algorithm, regardless of autotune, for consistent handling in Step 7
+        if clustering_algorithm.upper().startswith("GMM"):
+            all_chunk_gmm_types.append(gmm_type_chunk_result)
+        else:
+            all_chunk_gmm_types.append(None) # Append None for non-GMM algos to maintain list structure if needed elsewhere
+
         all_chunk_cluster_labels.append(clustering_result_dict['Cluster_labeling'])
         all_chunk_best_params.append(clustering_result_dict.get('Best_parameter_dict')) # Store params
         
@@ -419,7 +427,7 @@ def main():
 
     if 'cluster' in data.columns and len(data['cluster']) == len(y_true):
         y_pred_original = data['cluster'].to_numpy()
-        if eval_clustering_silhouette == 'y':
+        if eval_clustering_silhouette_flag:
             metrics_original = evaluate_clustering(y_true, y_pred_original, X_data_for_eval)
         else:
             metrics_original = evaluate_clustering_wos(y_true, y_pred_original)
@@ -429,7 +437,7 @@ def main():
 
     if 'adjusted_cluster' in data.columns and len(data['adjusted_cluster']) == len(y_true):
         y_pred_adjusted = data['adjusted_cluster'].to_numpy()
-        if eval_clustering_silhouette == 'y':
+        if eval_clustering_silhouette_flag:
             metrics_adjusted = evaluate_clustering(y_true, y_pred_adjusted, X_data_for_eval)
         else:
             metrics_adjusted = evaluate_clustering_wos(y_true, y_pred_adjusted)
@@ -467,62 +475,68 @@ def main():
 
     # 7. Save results
     start = time.time()
-
-    # Determine GMM_type_for_save from collected chunk GMM_types
-    # For simplicity, if GMM was used and any chunk returned a GMM_type, use the first one found.
-    # This might need more sophisticated handling if GMM_types can vary meaningfully across chunks for the same run.
-    GMM_type_for_save = None
-    if clustering_algorithm.upper() == "GMM" and eval_clustering_silhouette == 'y':
-        for gmm_t in all_chunk_gmm_types:
-            if gmm_t is not None:
-                GMM_type_for_save = gmm_t
-                break
-        if GMM_type_for_save:
-            print(f"[INFO Save] Using GMM_type: {GMM_type_for_save} for saving.")
-        else:
-            print("[WARN Save] GMM algorithm was used (Autotune), but no GMM_type collected from chunks. GMM_type specific filenames might be affected.")
-    elif clustering_algorithm.upper() == "GMM": # Non-autotune GMM might still need a default GMM_type if save funcs expect it
-        # In Non_optimization, choose_clustering_algorithm_Non_optimization doesn't return GMM_type explicitly.
-        # It's usually embedded in the clustering_algorithm string itself (e.g., "GMM_normal").
-        # We might need to parse it from clustering_algorithm or assume a default if critical for filename.
-        # For now, if not autotune, GMM_type_for_save will remain None unless explicitly handled.
-        # save_csv.py handles GMM_type=None for filenames, so this might be acceptable.
+    
+    determined_gmm_type = None 
+    if clustering_algorithm.upper().startswith("GMM"): # "GMM", "GMM_full", "SGMM" 등
         parts = clustering_algorithm.split('_')
-        if len(parts) > 1 and parts[0].upper() == 'GMM':
-             GMM_type_for_save = parts[1] # e.g., "normal" from "GMM_normal"
-             print(f"[INFO Save] Parsed GMM_type: {GMM_type_for_save} from clustering_algorithm for saving.")
+        if len(parts) == 1 and parts[0].upper() == 'GMM': 
+            determined_gmm_type = "normal"
+        elif len(parts) == 2 and parts[0].upper() == 'GMM' and parts[1].lower() in ['normal', 'full', 'tied', 'diag']:
+            determined_gmm_type = parts[1].lower()
+        # For cases like SGMM, determined_gmm_type can be kept as None here (SGMM does not directly use GMM_type)
 
+        # Use GMM type from all_chunk_gmm_types if available, as it reflects what was actually run
+        if autotune_enabled and all_chunk_gmm_types: # Check autotune_enabled here for clarity
+            if all_chunk_gmm_types[0] is not None: 
+                 determined_gmm_type = all_chunk_gmm_types[0]
+        elif not autotune_enabled and all_chunk_gmm_types: # Non-Autotune path, still check collected type
+             if all_chunk_gmm_types[0] is not None:
+                  determined_gmm_type = all_chunk_gmm_types[0]
+    
+    timing_info['7_save_time_start_hook'] = time.time() - start # Placeholder, real save time is at the end
 
-    # Call csv_compare_clustering with correct arguments
-    # Signature: csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_type=None)
-    if 'cluster' in data.columns and 'adjusted_cluster' in data.columns: # Ensure necessary columns exist
-        csv_compare_clustering(file_type=file_type, 
-                               clusterint_method=clustering_algorithm, 
-                               file_number=file_number, 
-                               data=data, 
-                               GMM_type=GMM_type_for_save)
-        print(f"[INFO Save] csv_compare_clustering called.")
+    time_save_csv_VL(file_type, file_number, clustering_algorithm, 
+                     timing_info)
+
+    if 'cluster' in data.columns and len(data['cluster']) == len(y_true):
+        # For csv_compare_clustering, the arguments were simplified in the save_csv.py
+        # Original call might have been:
+        # csv_compare_clustering(data, y_true, data['cluster'].to_numpy(), metrics_original, 
+        #                        file_type, file_number, heterogeneous_method, clustering_algorithm, 
+        #                        Association_mathod, eval_clustering_silhouette, 
+        #                        gmm_type=determined_gmm_type)
+        # Matching the current definition in save_csv.py:
+        # def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_type=None):
+        csv_compare_clustering(
+            file_type, # file_type
+            clustering_algorithm, # clusterint_method
+            file_number, # file_number
+            data, # data (DataFrame containing 'cluster', 'adjusted_cluster', 'label')
+            GMM_type=determined_gmm_type # GMM_type
+        )
+        
+        # For csv_compare_matrix_clustering, arguments were simplified too.
+        # Original call might have been:
+        # csv_compare_matrix_clustering(y_true, data['cluster'].to_numpy(), data['label'], 
+        #                               file_type, file_number, heterogeneous_method, clustering_algorithm, 
+        #                               Association_mathod, eval_clustering_silhouette, 
+        #                               gmm_type=determined_gmm_type)
+        # Matching the current definition in save_csv.py:
+        # def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, metrics_original, metrics_adjusted, GMM_type):
+        csv_compare_matrix_clustering(
+            file_type, # file_type
+            file_number, # file_number
+            clustering_algorithm, # clusterint_method
+            metrics_original, # metrics_original
+            metrics_adjusted, # metrics_adjusted
+            GMM_type=determined_gmm_type # GMM_type
+        )
     else:
-        print("[WARN Save] 'cluster' or 'adjusted_cluster' not in data. Skipping csv_compare_clustering.")
-
-    # Call csv_compare_matrix_clustering with correct arguments
-    # Signature: csv_compare_matrix_clustering(file_type, file_number, clusterint_method, metrics_original, metrics_adjusted, GMM_type)
-    if metrics_original and metrics_adjusted: # Ensure metrics were calculated
-        csv_compare_matrix_clustering(file_type=file_type, 
-                                      file_number=file_number, 
-                                      clusterint_method=clustering_algorithm, 
-                                      metrics_original=metrics_original, 
-                                      metrics_adjusted=metrics_adjusted, 
-                                      GMM_type=GMM_type_for_save)
-        print(f"[INFO Save] csv_compare_matrix_clustering called.")
-    elif not metrics_original:
-        print("[WARN Save] metrics_original is empty. Skipping csv_compare_matrix_clustering.")
-    elif not metrics_adjusted:
-        print("[WARN Save] metrics_adjusted is empty. Skipping csv_compare_matrix_clustering.")
+        print("[WARN Save] 'cluster' column not available or length mismatch with y_true. Skipping CSV result comparison saving.")
 
 
-    timing_info['7_save_results_time'] = time.time() - start
-    print(f"Step 7 finished. Save Time: {timing_info['7_save_results_time']:.2f}s")
+    timing_info['7_save_time'] = time.time() - start # This is the actual end of step 7 including saves
+    print(f"Step 7 finished. Save Time: {timing_info['7_save_time']:.2f}s")
 
 
     # Calculate total time
