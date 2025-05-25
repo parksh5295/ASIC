@@ -132,7 +132,7 @@ def main():
         print(f"[DEBUG GlobalRef] Total normal samples in full data (PCA space): {num_all_normal_ref}")
 
         if num_all_normal_ref > 1:
-            sample_size_ref = int(num_all_normal_ref * 0.8)
+            sample_size_ref = int(num_all_normal_ref * 0.95)
             if sample_size_ref == 0 and num_all_normal_ref > 0: sample_size_ref = 1 # Ensure at least 1 if possible
             # Handle cases where sample_size_ref might be larger than population if num_all_normal_ref is small
             if sample_size_ref > num_all_normal_ref : sample_size_ref = num_all_normal_ref 
@@ -140,7 +140,7 @@ def main():
             if sample_size_ref > 0 : # Proceed only if sample_size_ref is valid
                 random_indices_ref = np.random.choice(num_all_normal_ref, size=sample_size_ref, replace=False)
                 global_known_normal_samples_pca_for_cni = all_normal_samples_pca_ref[random_indices_ref]
-                print(f"[DEBUG GlobalRef] Global reference normal samples (80% of all normals in full data, PCA space) created. Shape: {global_known_normal_samples_pca_for_cni.shape}")
+                print(f"[DEBUG GlobalRef] Global reference normal samples (95% of all normals in full data, PCA space) created. Shape: {global_known_normal_samples_pca_for_cni.shape}")
             else:
                 print("[WARN GlobalRef] Sample size for global reference normals is 0. No global reference created.")
                 global_known_normal_samples_pca_for_cni = np.array([]) # Empty array
