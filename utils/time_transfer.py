@@ -17,6 +17,11 @@ def hms_to_seconds(hms_str):
     except ValueError:
         return np.nan # Or handle error as appropriate
 
+# Worker function for parallel date correction (moved from time_scalar_transfer)
+def _correct_date_task_worker(date_str_is_two_digit_tuple):
+    date_str, is_two_digit = date_str_is_two_digit_tuple
+    return correct_invalid_date(date_str, is_two_digit)
+
 def correct_invalid_date(date_str, is_two_digit_year=False):
     """Fix invalid dates to the nearest valid date"""
     try:
@@ -51,9 +56,9 @@ def time_scalar_transfer(data, file_type):
         mask4 = data['Date'].str.match(regex4)
 
         # Helper for parallel date correction
-        def _correct_date_task(date_str_is_two_digit_tuple):
-            date_str, is_two_digit = date_str_is_two_digit_tuple
-            return correct_invalid_date(date_str, is_two_digit)
+        # def _correct_date_task(date_str_is_two_digit_tuple):
+        #     date_str, is_two_digit = date_str_is_two_digit_tuple
+        #     return correct_invalid_date(date_str, is_two_digit)
 
         if mask2.any():
             try:
@@ -64,7 +69,7 @@ def time_scalar_transfer(data, file_type):
                 if tasks_mask2:
                     num_processes = multiprocessing.cpu_count()
                     with multiprocessing.Pool(processes=num_processes) as pool:
-                        corrected_dates_list_mask2 = pool.map(_correct_date_task, tasks_mask2)
+                        corrected_dates_list_mask2 = pool.map(_correct_date_task_worker, tasks_mask2)
                     data.loc[mask2, 'Date'] = pd.to_datetime(pd.Series(corrected_dates_list_mask2, index=problematic_dates_series_mask2.index), format="%m/%d/%y", errors='coerce')
                 else:
                     # Fallback for safety, though tasks_mask2 should not be empty if mask2.any() is true and series is not all NaN
@@ -95,7 +100,7 @@ def time_scalar_transfer(data, file_type):
                 if tasks_mask4:
                     num_processes = multiprocessing.cpu_count()
                     with multiprocessing.Pool(processes=num_processes) as pool:
-                        corrected_dates_list_mask4 = pool.map(_correct_date_task, tasks_mask4)
+                        corrected_dates_list_mask4 = pool.map(_correct_date_task_worker, tasks_mask4)
                     data.loc[mask4, 'Date'] = pd.to_datetime(pd.Series(corrected_dates_list_mask4, index=problematic_dates_series_mask4.index), format="%m/%d/%Y", errors='coerce')
                 else:
                     data.loc[mask4, 'Date'] = pd.to_datetime(data.loc[mask4, 'Date'], format="%m/%d/%Y", errors='coerce')
