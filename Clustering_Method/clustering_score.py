@@ -54,7 +54,7 @@ def average_combination_wos(t, p, average):
 
 
 def evaluate_clustering(y_true, y_pred, X_data):
-    if not y_true.empty:
+    if y_true.size > 0:
         # Define tasks for parallel execution
         # Each task is (function_to_call, y_true, y_pred, average_method, X_data)
         # For average_combination_wos, X_data might be None or an empty placeholder if not used.
@@ -94,7 +94,7 @@ def evaluate_clustering(y_true, y_pred, X_data):
     return {}
 
 def evaluate_clustering_wos(y_true, y_pred):
-    if not y_true.empty:
+    if y_true.size > 0:
         tasks = [
             (average_combination_wos, y_true, y_pred, 'macro'),
             (average_combination_wos, y_true, y_pred, 'micro'),

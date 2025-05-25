@@ -321,7 +321,7 @@ def main():
     print("\nStep 5: Clustering Algorithm Application...")
     start = time.time()
 
-    chunk_size = 2000
+    chunk_size = 5000
     num_samples = data_for_clustering.shape[0]
     num_chunks = math.ceil(num_samples / chunk_size)
     print(f"Total samples: {num_samples}, Chunk size: {chunk_size}, Number of chunks: {num_chunks}")

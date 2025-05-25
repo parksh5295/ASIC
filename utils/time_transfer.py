@@ -69,7 +69,7 @@ def time_scalar_transfer(data, file_type):
                 if tasks_mask2:
                     num_processes = multiprocessing.cpu_count()
                     with multiprocessing.Pool(processes=num_processes) as pool:
-                        corrected_dates_list_mask2 = pool.map(_correct_date_task_worker, tasks_mask2)
+                        corrected_dates_list_mask2 = pool.map(_correct_date_task_worker, tasks_mask2, chunksize=5000)
                     data.loc[mask2, 'Date'] = pd.to_datetime(pd.Series(corrected_dates_list_mask2, index=problematic_dates_series_mask2.index), format="%m/%d/%y", errors='coerce')
                 else:
                     # Fallback for safety, though tasks_mask2 should not be empty if mask2.any() is true and series is not all NaN
@@ -100,7 +100,7 @@ def time_scalar_transfer(data, file_type):
                 if tasks_mask4:
                     num_processes = multiprocessing.cpu_count()
                     with multiprocessing.Pool(processes=num_processes) as pool:
-                        corrected_dates_list_mask4 = pool.map(_correct_date_task_worker, tasks_mask4)
+                        corrected_dates_list_mask4 = pool.map(_correct_date_task_worker, tasks_mask4, chunksize=5000)
                     data.loc[mask4, 'Date'] = pd.to_datetime(pd.Series(corrected_dates_list_mask4, index=problematic_dates_series_mask4.index), format="%m/%d/%Y", errors='coerce')
                 else:
                     data.loc[mask4, 'Date'] = pd.to_datetime(data.loc[mask4, 'Date'], format="%m/%d/%Y", errors='coerce')
@@ -137,7 +137,7 @@ def time_scalar_transfer(data, file_type):
         if tasks_start_time:
             try:
                 with multiprocessing.Pool(processes=num_processes) as pool:
-                    data['StartTime_scalar'] = pool.map(hms_to_seconds, tasks_start_time)
+                    data['StartTime_scalar'] = pool.map(hms_to_seconds, tasks_start_time, chunksize=5000)
             except Exception as e:
                 print(f"Error during parallel StartTime conversion: {e}. Falling back to sequential.")
                 data['StartTime_scalar'] = data['StartTime'].apply(hms_to_seconds)
@@ -147,7 +147,7 @@ def time_scalar_transfer(data, file_type):
         if tasks_duration:
             try:
                 with multiprocessing.Pool(processes=num_processes) as pool:
-                    data['Duration_scalar'] = pool.map(hms_to_seconds, tasks_duration)
+                    data['Duration_scalar'] = pool.map(hms_to_seconds, tasks_duration, chunksize=5000)
             except Exception as e:
                 print(f"Error during parallel Duration conversion: {e}. Falling back to sequential.")
                 data['Duration_scalar'] = data['Duration'].apply(hms_to_seconds)
