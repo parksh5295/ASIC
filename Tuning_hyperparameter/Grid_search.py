@@ -17,6 +17,21 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 from utils.class_row import nomal_class_data
 
 
+# Moved helper for Kmeans parallel processing to top level
+def _evaluate_kmeans_n_init_worker(task_args):
+    X_k, n_clusters_k, parameter_dict_k, n_init_k = task_args
+    kmeans = KMeans(
+        n_clusters=n_clusters_k,
+        random_state=parameter_dict_k['random_state'],
+        n_init=n_init_k
+    )
+    labels_k = kmeans.fit_predict(X_k)
+    current_score_k = -1
+    if len(set(labels_k)) > 1:
+        current_score_k = silhouette_score(X_k, labels_k)
+    return n_init_k, current_score_k
+
+
 # Helper function for Grid_search_all parallel execution
 def _evaluate_param_set_all(param_set_args):
     """Evaluates a single parameter set for Grid_search_all."""
@@ -24,7 +39,7 @@ def _evaluate_param_set_all(param_set_args):
     param_set, clustering_algorithm, param_keys_local, create_model_func, X_local, data_local, default_parameter_dict = param_set_args
 
     if clustering_algorithm == 'NeuralGas':
-        params = param_set  # Already a dict for NeuralGas
+        params = param_set
     else:
         params = dict(zip(param_keys_local, param_set))
     
@@ -44,31 +59,11 @@ def _evaluate_param_set_all(param_set_args):
                 print(f"[ERROR] Data is None for {clustering_algorithm} but required.")
                 return params, score, db_score, f1, acc # Return default/error scores
             
-            # Ensure data_local has 'label' for evaluate_clustering_with_known_benign
-            # The original code for CANN in Grid_search_all seems to imply X is used as features
-            # and data might be the original dataframe with labels for evaluation.
-            # The evaluate_clustering_with_known_benign expects `data` (original full df), `X` (features), `clusters` (labels from predict), `num_clusters`, `aligned_original_labels`
-            # Let's assume model.fit_predict provides the necessary labels directly.
-            # The original Grid_search_all calls model.fit_predict(X, data)
-            # This implies CANNWithKNN's fit_predict might take two args, or data is used internally by it.
-            # For now, assuming data_local is correctly passed and used by model.fit_predict if needed.
+            cluster_labels = model.fit_predict(X_local, data_local)
             
-            # The original code for CANN/CANNwKNN passes `data` (original df) to fit_predict.
-            # `labels` here are the cluster assignments from the model.
-            # `aligned_original_labels` would be data_local['label'] if data_local is the original df.
-            # `num_clusters` is tricky if model determines it; if fixed, needs to be passed.
-            
-            # Simplified: The original code calls model.fit_predict(X, data), let's stick to that pattern if the model supports it.
-            # If CANNWithKNN.fit_predict takes two arguments like X and original_data_with_labels:
-            cluster_labels = model.fit_predict(X_local, data_local) # Assuming this is how CANN model works
-            
-            if len(set(cluster_labels)) < 1: # CANN might return single cluster or error
+            if len(set(cluster_labels)) < 1:
                 return params, score, db_score, f1, acc
 
-            # For CANN, evaluation uses evaluate_clustering_with_known_benign
-            # This function needs the original dataframe (`data_local`), features (`X_local`), 
-            # predicted cluster labels (`cluster_labels`), number of clusters (dynamic from labels), 
-            # and the true labels aligned with X_local (`data_local['label']`).
             if 'label' in data_local.columns:
                 f1, acc = evaluate_clustering_with_known_benign(
                     data_local, X_local, cluster_labels, len(set(cluster_labels)), data_local['label']
@@ -128,42 +123,43 @@ def Grid_search_Kmeans(X, n_clusters, parameter_dict=None):
     for n_init in n_init_values:
         tasks_kmeans.append((X, n_clusters, parameter_dict, n_init))
 
-    # Helper for Kmeans parallel processing
-    def _evaluate_kmeans_n_init(task_args):
-        X_k, n_clusters_k, parameter_dict_k, n_init_k = task_args
-        kmeans = KMeans(
-            n_clusters=n_clusters_k,
-            random_state=parameter_dict_k['random_state'],
-            n_init=n_init_k
-        )
-        labels_k = kmeans.fit_predict(X_k)
-        current_score_k = -1
-        if len(set(labels_k)) > 1:
-            current_score_k = silhouette_score(X_k, labels_k)
-        return n_init_k, current_score_k
-
     if tasks_kmeans:
         num_processes_kmeans = min(len(tasks_kmeans), multiprocessing.cpu_count())
         try:
             with multiprocessing.Pool(processes=num_processes_kmeans) as pool:
-                results_kmeans = pool.map(_evaluate_kmeans_n_init, tasks_kmeans)
+                # Use the top-level worker function
+                results_kmeans = pool.map(_evaluate_kmeans_n_init_worker, tasks_kmeans)
             
             for n_init_res, score_res in results_kmeans:
                 if score_res > best_score:
                     best_score = score_res
                     best_params = {'n_init': n_init_res}
         except Exception as e:
-            print(f"Error during parallel Kmeans n_init search: {e}. Proceeding sequentially as fallback (not implemented here for brevity, original sequential code was removed).")
-            # Fallback to original sequential loop if needed, or handle error
-            # For now, if parallel fails, best_params might remain None or partially updated
-            # Original sequential loop was: 
-            # for n_init in n_init_values:
-            #     kmeans = KMeans(...) 
-            #     labels = kmeans.fit_predict(X) 
-            #     if len(set(labels)) > 1: score = silhouette_score(X, labels) 
-            #     if score > best_score: best_score = score; best_params = {'n_init': n_init}
-            # This part would need to be re-added for a full fallback.
-            print("Warning: Kmeans parallel processing failed. Results might be incomplete.")
+            print(f"Error during parallel Kmeans n_init search: {e}. Attempting sequential fallback.")
+            # Fallback to original sequential loop
+            best_score_seq = -1
+            best_params_seq = None
+            print("Performing sequential Kmeans n_init search as fallback...")
+            for task_args_seq in tasks_kmeans: # Iterate through the prepared tasks
+                # Call the worker function directly for sequential execution
+                n_init_seq, score_seq = _evaluate_kmeans_n_init_worker(task_args_seq)
+                if score_seq > best_score_seq:
+                    best_score_seq = score_seq
+                    best_params_seq = {'n_init': n_init_seq}
+            
+            # Use sequential results if they are better or if parallel results were incomplete
+            if best_params_seq is not None:
+                if best_params is None or best_score_seq > best_score: # If parallel failed or sequential is better
+                    best_score = best_score_seq
+                    best_params = best_params_seq
+                    print("Sequential Kmeans fallback provided results.")
+                elif best_params is not None: # Parallel had some result, but ensure it's used if it was better
+                    print("Parallel Kmeans results will be used (were better or equal to sequential fallback).")
+            else:
+                print("Warning: Kmeans sequential fallback also failed or produced no valid results.")
+            
+            if best_params is None:
+                 print("Warning: Kmeans n_init search (parallel and sequential) failed to find best_params. Results might be incomplete.")
 
     # Merge with complete parameter_dict
     best_param_full = parameter_dict.copy()
@@ -194,7 +190,7 @@ def evaluate_clustering_with_known_benign(data, X, clusters, num_clusters, align
 
     inferred_labels = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters)
 
-    # 실Create ground truth about where my benigns are
+    # Create ground truth about where my benigns are
     ground_truth = np.ones(len(data))  # The default is attack(1)
     benign_idx = data.index.isin(benign_data.index)
     ground_truth[benign_idx] = 0
@@ -203,7 +199,7 @@ def evaluate_clustering_with_known_benign(data, X, clusters, num_clusters, align
     acc = accuracy_score(ground_truth, inferred_labels)
     return f1, acc
 
-
+# THIS IS THE RESTORED Grid_search_all FUNCTION
 def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
     # Maintain complete parameter_dict for compatibility
     if parameter_dict is None:
@@ -229,42 +225,42 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
 
     print(f"\n{clustering_algorithm} Performing clustering...")
 
+    param_grid = {}
+    create_model = None # Renamed from create_model_func for original consistency
+    param_combinations = [] # For NeuralGas, this will be a list of dicts
+
+    # START: Algorithm-specific param_grid and create_model setup
     if clustering_algorithm in ['Xmeans', 'xmeans']:
         XMeansWrapper = dynamic_import("Clustering_Method.clustering_Xmeans", "XMeansWrapper")
         param_grid = {'max_clusters': list(range(2, 31, 3))}
-        def create_model(params):
-            # Use only necessary parameters for XMeans
-            model_params = {
-                'random_state': parameter_dict['random_state'],
-                **params
-            }
+        def create_model_local(params_local):
+            model_params = { 'random_state': parameter_dict['random_state'], **params_local }
             return XMeansWrapper(**model_params)
+        create_model = create_model_local
 
     elif clustering_algorithm in ['Gmeans', 'gmeans']:
         GMeans = dynamic_import("Clustering_Method.clustering_Gmeans", "GMeans")
         log_range = np.logspace(-6, -1, num=10)
         lin_range = np.linspace(min(log_range), max(log_range), num=10)
         combined_range = np.unique(np.concatenate((log_range, lin_range)))
-
         param_grid = {'max_clusters': list(range(2, 31, 3)), 'tol': combined_range}
-        def create_model(params):
-            # Use only necessary parameters for GMeans
-            model_params = {
-                'random_state': parameter_dict['random_state'],
-                **params
-            }
+        def create_model_local(params_local):
+            model_params = { 'random_state': parameter_dict['random_state'], **params_local }
             return GMeans(**model_params)
+        create_model = create_model_local
 
     elif clustering_algorithm == 'DBSCAN':
         param_grid = {'eps': np.arange(0.1, 1, 0.02), 'min_samples': list(range(3, 20, 2))}
-        def create_model(params):
-            return DBSCAN(**params)
-
+        def create_model_local(params_local):
+            return DBSCAN(**params_local)
+        create_model = create_model_local
+    
     elif clustering_algorithm == 'MShift':
         MeanShiftWithDynamicBandwidth = dynamic_import("Clustering_Method.clustering_Mshift", "MeanShiftWithDynamicBandwidth")
-        param_grid = {'quantile': np.arange(0.01, 0.31, 0.05), 'n_samples': list(range(50, 210, 30))}    # Bandwidth estimates can be erroneous if n_samples is too large(1000)
-        def create_model(params):
-            return MeanShiftWithDynamicBandwidth(**params)
+        param_grid = {'quantile': np.arange(0.01, 0.31, 0.05), 'n_samples': list(range(50, 210, 30))}
+        def create_model_local(params_local):
+            return MeanShiftWithDynamicBandwidth(**params_local)
+        create_model = create_model_local
 
     elif clustering_algorithm == 'NeuralGas':
         NeuralGasWithParams = dynamic_import("Clustering_Method.clustering_NeuralGas", "NeuralGasWithParams")
@@ -276,115 +272,149 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
         '''
         # Automatically calculate reasonable ranges based on data counts
         n = len(X)
-        estimated_nodes = int(np.sqrt(n))  # Recommended default values
-
-        # Limiting the max_nodes range
+        estimated_nodes = int(np.sqrt(n))
         max_nodes_list = [int(0.5 * estimated_nodes), estimated_nodes, int(1.5 * estimated_nodes)]
-        max_nodes_list = [m for m in max_nodes_list if m >= 10]  # Exclude values that are too small
-
-        # Create constrained combinations to make max_edge_age proportional to max_nodes
-        edge_age_list = lambda m: [int(0.5 * m), m, int(1.5 * m)]
-
-        param_combinations = []
+        max_nodes_list = [m for m in max_nodes_list if m >= 10]
+        if not max_nodes_list: max_nodes_list = [10]
+        edge_age_list_func = lambda m: [int(0.5 * m), m, int(1.5 * m)]
+        
+        param_combinations_list_of_dicts = [] 
         for start_nodes in [2, 5, 10]:
-            for max_nodes in max_nodes_list:
-                for edge_age in edge_age_list(max_nodes):
-                    for step in [0.1, 0.2, 0.3]:
-                        param_combinations.append({
+            for max_nodes_val in max_nodes_list:
+                for edge_age in edge_age_list_func(max_nodes_val):
+                    for step_val in [0.1, 0.2, 0.3]:
+                        param_combinations_list_of_dicts.append({
                             'n_start_nodes': start_nodes,
-                            'max_nodes': max_nodes,
-                            'step': step,
+                            'max_nodes': max_nodes_val,
+                            'step': step_val,
                             'max_edge_age': edge_age
                         })
-
-        def create_model(params):
-            return NeuralGasWithParams(**params)
+        param_combinations = param_combinations_list_of_dicts # This is a list of dicts for NeuralGas
+        def create_model_local(params_local):
+            return NeuralGasWithParams(**params_local)
+        create_model = create_model_local
 
     elif clustering_algorithm in ['CANNwKNN', 'CANN']:
         CANNWithKNN = dynamic_import("Clustering_Method.clustering_CANNwKNN", "CANNWithKNN")
         param_grid = {'epochs': list(range(20, 501, 20)), 'batch_size': list(range(32, 257, 32)), 
                         'n_neighbors': list(range(3, 51, 5))}
-        input_shape = X.shape[1]
-        def create_model(params):
-            # Use only necessary parameters for CANNwKNN
-            model_params = {
-                'input_shape': input_shape,
-                **params
-            }
+        input_shape_val = X.shape[1]
+        def create_model_local(params_local):
+            model_params = { 'input_shape': input_shape_val, **params_local }
             return CANNWithKNN(**model_params)
-
+        create_model = create_model_local
     else:
         print(f"Unsupported algorithm: {clustering_algorithm}")
-        pass
+        return parameter_dict 
+    # END: Algorithm-specific param_grid and create_model setup
 
-    if clustering_algorithm == 'NeuralGas':
-        # ... param_combinations already created (see above)
-        pass
-    else:
-        # Generate all hyperparameter combinations
-        param_keys = list(param_grid.keys())
-        param_values = list(param_grid.values())
-        param_combinations = list(product(*param_values))
-
-    best_score = -1
-    best_db_score = float('inf')
-    best_params = None
-
-    # Prepare tasks for parallel execution
+    # START: Common worker_tasks preparation
     worker_tasks = []
-    # param_keys, param_combinations are defined based on clustering_algorithm
+    param_keys_for_worker = [] # Should be defined before use if not NeuralGas
 
-    # The `create_model` function is defined within the scope of Grid_search_all
-    # and depends on `clustering_algorithm` and `parameter_dict`.
-    # We need to ensure it's picklable or its dependencies are passed correctly.
-    # For `starmap`, the function itself is passed. If it's a local closure,
-    # it might work if the closed-over variables are simple.
-
-    # Determine param_keys based on algorithm BEFORE creating tasks for non-NeuralGas
-    param_keys_for_worker = []
     if clustering_algorithm != 'NeuralGas':
-        param_keys_for_worker = list(param_grid.keys()) # param_grid is defined per algorithm
+        if not param_grid: # Should not happen if algorithm is supported
+            print(f"Error: param_grid not set for {clustering_algorithm}")
+            return parameter_dict
+        param_keys_for_worker = list(param_grid.keys())
+        param_value_tuples = list(product(*param_grid.values()))
+        for param_set_tuple in param_value_tuples:
+            worker_tasks.append((param_set_tuple, clustering_algorithm, param_keys_for_worker, create_model, X, data, parameter_dict))
+    else: # NeuralGas: param_combinations is already list of dicts
+        if not param_combinations: # param_combinations should be a list of dicts from above
+            print(f"Error: param_combinations (list of dicts) not set for NeuralGas")
+            return parameter_dict
+        for param_set_dict in param_combinations: 
+            # For NeuralGas, _evaluate_param_set_all uses param_set_dict directly. param_keys_for_worker can be empty.
+            worker_tasks.append((param_set_dict, clustering_algorithm, [], create_model, X, data, parameter_dict))
+    # END: Common worker_tasks preparation
 
-    for param_set_item in param_combinations:
-        # Each task is a tuple: (param_set_item, clustering_algorithm_name, param_keys_list, create_model_function, X_data, original_data, default_param_dict_for_model)
-        worker_tasks.append((param_set_item, clustering_algorithm, param_keys_for_worker, create_model, X, data, parameter_dict))
+    # START: Common variables for result tracking
+    current_best_score = -1
+    current_best_db_score = float('inf')
+    current_best_f1 = -1 
+    current_best_acc = -1 
+    current_best_params = None
+    all_param_results = [] # Results from parallel or sequential execution
+    # END: Common variables for result tracking 
 
+    # START: Common parallel execution with fallback
     if worker_tasks:
         num_processes_all = min(len(worker_tasks), multiprocessing.cpu_count())
         print(f"[Grid_search_all] Using {num_processes_all} processes for {clustering_algorithm} with {len(worker_tasks)} param combinations.")
         
-        all_param_results = []
         try:
+            # Attempt parallel execution
             with multiprocessing.Pool(processes=num_processes_all) as pool:
-                # _evaluate_param_set_all expects a single tuple argument
                 all_param_results = pool.map(_evaluate_param_set_all, worker_tasks)
         except Exception as e:
-            print(f"Error during parallel Grid_search_all for {clustering_algorithm}: {e}")
-            # Fallback or error handling for Grid_search_all
-            # For now, if parallel fails, results will be empty, leading to no best_params.
-            # A full sequential fallback would re-implement the original loop here.
-            print(f"Warning: Parallel processing failed for {clustering_algorithm}. Results might be incomplete.")
-
-        # Process results from parallel execution
-        for presult_params, presult_score, presult_db_score, presult_f1, presult_acc in all_param_results:
-            if clustering_algorithm in ['CANNwKNN', 'CANN']:
-                if presult_f1 > best_score: # Using F1 for CANN
-                    best_score = presult_f1
-                    best_params = presult_params
-                    # Optionally store acc as well if needed in best_results
-            else: # Other algorithms use Silhouette
-                if presult_score > best_score:
-                    best_score = presult_score
-                    best_db_score = presult_db_score # Store corresponding Davies-Bouldin
-                    best_params = presult_params
+            # Parallel execution failed, attempt sequential fallback
+            print(f"Error during parallel Grid_search_all for {clustering_algorithm}: {e}. Attempting sequential fallback.")
+            all_param_results = [] # Clear any partial results from failed parallel attempt
+            for task_args_seq in worker_tasks:
+                all_param_results.append(_evaluate_param_set_all(task_args_seq))
+            
+            if not all_param_results or all(res[1] == -1 and (clustering_algorithm not in ['CANNwKNN', 'CANN'] or res[3] == -1) for res in all_param_results):
+                print(f"Warning: Sequential fallback for {clustering_algorithm} also failed or produced no valid results.")
+            elif all_param_results: 
+                print(f"Sequential fallback for {clustering_algorithm} provided results.")
     else:
         print(f"No parameter combinations to evaluate for {clustering_algorithm}.")
+    # END: Common parallel execution with fallback
 
-    best_results[clustering_algorithm] = {
-        'best_params': best_params,
-        'all_params': parameter_dict,  # Return complete parameter_dict for compatibility
-        'silhouette_score': best_score,
-        'davies_bouldin_score': best_db_score
-    }
+    # START: Common result processing
+    for presult_params, presult_score, presult_db_score, presult_f1, presult_acc in all_param_results:
+        if clustering_algorithm in ['CANNwKNN', 'CANN']:
+            if presult_f1 > current_best_f1:
+                current_best_f1 = presult_f1
+                current_best_acc = presult_acc
+                current_best_params = presult_params
+        else: # Other algorithms use Silhouette score (presult_score)
+            if presult_score > current_best_score:
+                current_best_score = presult_score
+                current_best_db_score = presult_db_score
+                current_best_params = presult_params
+    # END: Common result processing
 
-    return best_results
+    # START: Common result storage and return
+    if current_best_params is not None:
+        best_results_for_current_algo = {
+            'best_params': current_best_params,
+            'all_params': parameter_dict, # Keep full original dict for reference
+        }
+        if clustering_algorithm in ['CANNwKNN', 'CANN']:
+            best_results_for_current_algo['f1_score'] = current_best_f1
+            best_results_for_current_algo['accuracy'] = current_best_acc
+            best_results_for_current_algo['silhouette_score'] = -1 # Not primary
+            best_results_for_current_algo['davies_bouldin_score'] = float('inf') # Not primary
+        else:
+            best_results_for_current_algo['silhouette_score'] = current_best_score
+            best_results_for_current_algo['davies_bouldin_score'] = current_best_db_score
+        best_results[clustering_algorithm] = best_results_for_current_algo # Store in the main dict
+    else:
+        print(f"Warning: {clustering_algorithm} search failed to find best_params.")
+        # Ensure a default entry in best_results for this algorithm to prevent key errors later
+        best_results[clustering_algorithm] = {
+            'best_params': {},
+            'all_params': parameter_dict,
+            'silhouette_score': -1,
+            'davies_bouldin_score': float('inf')
+        }
+        if clustering_algorithm in ['CANNwKNN', 'CANN']:
+            best_results[clustering_algorithm]['f1_score'] = -1
+            best_results[clustering_algorithm]['accuracy'] = -1
+
+    # Final return logic based on Autotune's expectation
+    if best_results.get(clustering_algorithm) and best_results[clustering_algorithm].get('best_params'):
+        final_param_dict = parameter_dict.copy()
+        final_param_dict.update(best_results[clustering_algorithm]['best_params'])
+        
+        final_param_dict['silhouette_score_from_grid'] = best_results[clustering_algorithm].get('silhouette_score', -1)
+        final_param_dict['davies_bouldin_score_from_grid'] = best_results[clustering_algorithm].get('davies_bouldin_score', float('inf'))
+        if clustering_algorithm in ['CANNwKNN', 'CANN']:
+             final_param_dict['f1_score_from_grid'] = best_results[clustering_algorithm].get('f1_score', -1)
+             final_param_dict['accuracy_from_grid'] = best_results[clustering_algorithm].get('accuracy', -1)
+        return final_param_dict
+    else:
+        print(f"Returning original parameter_dict for {clustering_algorithm} as grid search failed or no valid best_params were found.")
+        return parameter_dict

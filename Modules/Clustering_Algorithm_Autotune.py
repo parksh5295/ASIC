@@ -36,8 +36,19 @@ def choose_clustering_algorithm(data, X_reduced_features, original_labels_aligne
     elif clustering_algorithm_choice in ['Kmedians', 'kmedians']:
         clustering = clustering_Kmedians(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
-    elif clustering_algorithm_choice == 'GMM':
-        GMM_type = input("Please enter the GMM type, i.e. normal, full, tied, diag: ")
+    elif clustering_algorithm_choice.upper().startswith('GMM'):
+        parts = clustering_algorithm_choice.split('_')
+        if len(parts) == 1 and parts[0].upper() == 'GMM': # Only "GMM"
+            # GMM_type = input("Please enter the GMM type, i.e. normal, full, tied, diag: ") # Commented out
+            GMM_type = "normal"  # Default to "normal"
+            print(f"[INFO] GMM algorithm selected (Autotune path). Defaulting to GMM type: {GMM_type}")
+        elif len(parts) == 2 and parts[0].upper() == 'GMM' and parts[1].lower() in ['normal', 'full', 'tied', 'diag']:
+            GMM_type = parts[1].lower()
+            print(f"[INFO] Using GMM type '{GMM_type}' from algorithm choice: {clustering_algorithm_choice} (Autotune path)")
+        else:
+            print(f"Unsupported GMM specification: {clustering_algorithm_choice} (Autotune path)")
+            raise Exception(f"Unsupported GMM specification: {clustering_algorithm_choice}")
+        
         clustering = clustering_GMM(data, X_reduced_features, max_clusters, GMM_type, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'SGMM':
@@ -71,8 +82,8 @@ def choose_clustering_algorithm(data, X_reduced_features, original_labels_aligne
         clustering = clustering_CANNwKNN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     else:
-        print("Unsupported algorithm")
-        raise Exception("Unsupported clustering algorithms")
+        print(f"Unsupported algorithm: {clustering_algorithm_choice}")
+        raise Exception(f"Unsupported clustering algorithm: {clustering_algorithm_choice}")
 
     if clustering is None:
         # This check might be problematic if CANNwKNN is expected to return None or a different structure not caught by this.

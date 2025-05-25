@@ -35,9 +35,20 @@ def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, origi
     elif clustering_algorithm_choice in ['Kmedians', 'kmedians']:
         pre_clustering_result = pre_clustering_Kmedians(data, X_reduced_features, parameter_dict['n_clusters'], parameter_dict['random_state'])
 
-    elif clustering_algorithm_choice == 'GMM':
-        GMM_type = input("Please enter the GMM type, i.e. normal, full, tied, diag: ")
-        # Corrected argument order for pre_clustering_GMM
+    # Enhanced GMM type handling for Non-Autotune
+    elif clustering_algorithm_choice.upper().startswith('GMM'):
+        parts = clustering_algorithm_choice.split('_')
+        if len(parts) == 1 and parts[0].upper() == 'GMM': # Only "GMM"
+            # GMM_type = input("Please enter the GMM type, i.e. normal, full, tied, diag: ") # 주석 처리
+            GMM_type = "normal" # Default to normal
+            print(f"[INFO] GMM algorithm selected (Non-Autotune). Defaulting to GMM type: {GMM_type}")
+        elif len(parts) == 2 and parts[0].upper() == 'GMM' and parts[1].lower() in ['normal', 'full', 'tied', 'diag']:
+            GMM_type = parts[1].lower()
+            print(f"[INFO] Using GMM type '{GMM_type}' from algorithm choice: {clustering_algorithm_choice} (Non-Autotune)")
+        else:
+            print(f"Unsupported GMM specification: {clustering_algorithm_choice} (Non-Autotune)")
+            raise Exception(f"Unsupported GMM specification: {clustering_algorithm_choice}")
+        
         pre_clustering_result = pre_clustering_GMM(data, X_reduced_features, parameter_dict['n_clusters'], parameter_dict['random_state'], GMM_type)
 
     elif clustering_algorithm_choice == 'SGMM':
@@ -66,7 +77,7 @@ def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, origi
 
     elif clustering_algorithm_choice in ['CANNwKNN', 'CANN']:
         print(f"[INFO] CANNwKNN/CANN selected for Non-optimization. Passing global_known_normal_samples_pca for consistency.")
-        pre_clustering_result = pre_clustering_CANNwKNN(data, X_reduced_features, parameter_dict['epochs'], parameter_dict['batch_size'], parameter_dict['n_neighbors']) # Removed global_known_normal_samples_pca
+        pre_clustering_result = pre_clustering_CANNwKNN(data, X_reduced_features, parameter_dict['epochs'], parameter_dict['batch_size'], parameter_dict['n_neighbors'])
         
         final_cluster_labels = pre_clustering_result['model_labels']
         
