@@ -18,7 +18,7 @@ def clustering_SGMM(data, X, max_clusters, original_labels_aligned, global_known
     initial_parameter_dict = {
         'random_state': 42,
         'reg_covar': 1e-6, # Default initial reg_covar for SGMM
-        'n_init': 1      # Default n_init for SGMM (often 1 for spherical)
+        'n_init': 30      # Changed default n_init for SGMM to 30
     }
 
     # Elbow_method now expects a parameter_dict and will use reg_covar from it for SGMM

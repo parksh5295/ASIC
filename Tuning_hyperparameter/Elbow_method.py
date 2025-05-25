@@ -24,29 +24,41 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'GMM_type': GMM_type, # GMM_type is specific to pre_clustering_GMM
-            'reg_covar': parameter_dict['reg_covar']
+            'reg_covar': parameter_dict['reg_covar'],
+            'n_init': parameter_dict.get('n_init', 1) # Ensure n_init is passed for general GMM too
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
     elif clustering_algorithm == 'SGMM': # Spherical GMM
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
-            'reg_covar': parameter_dict['reg_covar']
+            'reg_covar': parameter_dict['reg_covar'],
+            'n_init': parameter_dict.get('n_init', 1) # Added n_init from parameter_dict
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
     elif clustering_algorithm in ['FCM', 'CK']:
-        clustering = pre_clustering_func(data, X, n_clusters)
+        if clustering_algorithm == 'CK':
+            # For CK, ensure n_init from the parameter_dict (which is 30 from Elbow_method's base_parameter_dict)
+            # is passed as n_init_for_ck to pre_clustering_CK
+            algorithm_params_ck = {
+                'n_init_for_ck': parameter_dict.get('n_init', 30) # Default to 30 if not in dict somehow
+            }
+            clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params_ck)
+        else: # FCM or any other in this list that doesn't take n_init
+            clustering = pre_clustering_func(data, X, n_clusters)
     elif clustering_algorithm == 'Gmeans':
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'max_clusters': parameter_dict['max_clusters'], # GMeans uses max_clusters from dict
-            'tol': parameter_dict['tol']
+            'tol': parameter_dict['tol'],
+            'n_init': parameter_dict.get('n_init', 30) # Added n_init for Gmeans
         }
         # n_clusters (k from loop) is not passed directly to pre_clustering_Gmeans
         clustering = pre_clustering_func(data, X, **algorithm_params)
     elif clustering_algorithm == 'Xmeans':
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
-            'max_clusters': parameter_dict['max_clusters'] # XMeans uses max_clusters from dict
+            'max_clusters': parameter_dict['max_clusters'], # XMeans uses max_clusters from dict
+            'n_init': parameter_dict.get('n_init', 30) # Added n_init for Xmeans
         }
         # n_clusters (k from loop) is not passed directly to pre_clustering_Xmeans
         clustering = pre_clustering_func(data, X, **algorithm_params)

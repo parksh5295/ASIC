@@ -215,15 +215,15 @@ def pre_clustering_GMM_diag(data, X, n_clusters, random_state, reg_covar=1e-6, n
     }
 
 
-def pre_clustering_GMM(data, X, n_clusters, random_state, GMM_type):
+def pre_clustering_GMM(data, X, n_clusters, random_state, GMM_type, n_init=30):
     if GMM_type == 'normal':
-        clustering_gmm = pre_clustering_GMM_normal(data, X, n_clusters, random_state)
+        clustering_gmm = pre_clustering_GMM_normal(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=n_init)
     elif GMM_type == 'full':
-        clustering_gmm = pre_clustering_GMM_full(data, X, n_clusters, random_state)
+        clustering_gmm = pre_clustering_GMM_full(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=n_init)
     elif GMM_type == 'tied':
-        clustering_gmm = pre_clustering_GMM_tied(data, X, n_clusters, random_state)
+        clustering_gmm = pre_clustering_GMM_tied(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=n_init)
     elif GMM_type == 'diag':
-        clustering_gmm = pre_clustering_GMM_diag(data, X, n_clusters, random_state)
+        clustering_gmm = pre_clustering_GMM_diag(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=n_init)
     else:
         print("GMM type Error!! -In Clustering")
         return None # Or raise an error
@@ -248,5 +248,6 @@ def fit_gmm_with_retry(X, n_components, covariance_type='full', random_state=Non
         except ValueError as e:
             print(f"[Warning] GMM ({covariance_type}, n_init={n_init_val}) failed with reg_covar={reg_covar:.1e}: {e}")
             reg_covar *= 10
-
+    # If loop finishes, all retries failed
+    print(f"[ERROR] GMM ({covariance_type}, n_init={n_init_val}) ultimately failed after trying reg_covar up to {reg_covar / 10:.1e} (max was {max_reg_covar_val})")
     raise ValueError(f"GMM ({covariance_type}, n_init={n_init_val}) failed after trying reg_covar up to {max_reg_covar_val}")

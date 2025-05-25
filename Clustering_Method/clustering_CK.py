@@ -140,12 +140,24 @@ def ck_predict(X_new, cntr, cov_matrices, m=2):
 def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
     after_elbow = Elbow_method(data, X, 'CK', max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
-    parameter_dict = after_elbow['best_parameter_dict']
+    parameter_dict = after_elbow['best_parameter_dict'] # This dict might have 'n_init' from Elbow's base params
 
     # Perform Gustafson-Kessel Clustering; Performing with auto-tuned epsilon included
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters)
+    # Pass the specific n_init for CK here
+    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck)
+    
+    if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
+        print("[ERROR clustering_CK] tune_epsilon_for_ck returned no valid result. Cannot proceed.")
+        # Handle error appropriately, e.g., return a dict indicating failure or raise exception
+        return {
+            'Cluster_labeling': np.array([]), # Empty or error indicator
+            'Best_parameter_dict': parameter_dict, # Might still be useful
+            'Error': 'CK clustering failed due to no valid result from tuning.'
+        }
+
     cntr, u, d, fpc, cov_matrices, best_epsilon = ck_results
     parameter_dict['epsilon_scale'] = best_epsilon  # Save selected values
+    parameter_dict['n_init_ck_actual'] = n_init_for_ck # Save actual n_init used for CK
 
     # Assign clusters based on maximum membership
     cluster_labels = np.argmax(u, axis=0)
@@ -166,9 +178,21 @@ def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_n
     }
 
 
-def pre_clustering_CK(data, X, n_clusters):
-    # Tune epsilon_scale for better stability
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters)
+def pre_clustering_CK(data, X, n_clusters, n_init_for_ck=30):
+    # Tune epsilon_scale for better stability, now also with n_init
+    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck)
+
+    if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
+        print(f"[ERROR pre_clustering_CK] tune_epsilon_for_ck returned no valid result for n_clusters={n_clusters}. Cannot proceed.")
+        # For pre_clustering, it must return the expected dict structure or raise error
+        # Returning a structure that indicates failure but matches expected keys where possible
+        return {
+            'model_labels': np.array([]), 
+            'n_clusters': n_clusters,
+            'before_labeling': None, # No model
+            'Error': 'CK pre_clustering failed.' 
+        }
+        
     cntr, u, d, fpc, cov_matrices, best_epsilon = ck_results
 
     # Assign clusters based on maximum membership
@@ -231,24 +255,70 @@ def regularize_covariance(cov, epsilon_scale=1e-5):
         cov += np.eye(cov.shape[0]) * epsilon_scale
     return cov
 
-def tune_epsilon_for_ck(X, c, epsilon_candidates=[1e-7, 1e-6, 1e-5, 1e-4]):
-    best_score = -1
-    best_result = None
-    best_epsilon = None
+def tune_epsilon_for_ck(X, c, epsilon_candidates=[1e-7, 1e-6, 1e-5, 1e-4], n_init=1, m=2, error=0.01, maxiter=500):
+    best_overall_score = -np.inf # Initialize with a very small number
+    best_overall_result = None
+    best_overall_epsilon = None
 
     for eps in epsilon_candidates:
-        try:
-            cntr, u, d, fpc, cov_matrices = ck_cluster(X, c=c, m=2, epsilon_scale=eps)
-            labels = np.argmax(u, axis=0)
+        current_epsilon_best_score = -np.inf
+        current_epsilon_best_result_for_init = None
+        
+        for init_iter in range(n_init):
+            # print(f"[DEBUG CK TuneEpsilon] Epsilon: {eps}, Init: {init_iter + 1}/{n_init}") # Optional Debug
+            try:
+                # For ck_cluster to have different random initializations, 
+                # we might need to ensure its internal np.random.dirichlet behaves differently.
+                # Explicitly seeding here for each init_iter could be an option if ck_cluster itself doesn't vary enough.
+                # However, np.random.dirichlet itself should produce different results if called multiple times without a fixed global seed.
+                
+                cntr_iter, u_iter, d_iter, fpc_iter, cov_matrices_iter = ck_cluster(X, c=c, m=m, error=error, maxiter=maxiter, epsilon_scale=eps)
+                
+                # Ensure u_iter is valid for silhouette_score
+                if u_iter is None or u_iter.shape[0] != c or u_iter.shape[1] != X.shape[0]:
+                    print(f"[Warning CK TuneEpsilon] Invalid membership matrix u_iter for eps {eps}, init {init_iter+1}. Skipping.")
+                    continue
 
-            score = silhouette_score(X, labels) # Or other metrics, such as FPC
+                labels_iter = np.argmax(u_iter, axis=0)
+                
+                if len(np.unique(labels_iter)) < 2: # Silhouette score requires at least 2 labels
+                    # print(f"[Warning CK TuneEpsilon] Not enough unique labels ({len(np.unique(labels_iter))}) for eps {eps}, init {init_iter+1} to calculate silhouette. Using FPC or skipping.")
+                    # Fallback to FPC or skip this iteration
+                    # For now, let's use FPC if silhouette isn't possible. Or simply skip.
+                    # Using FPC: score_iter = fpc_iter 
+                    # Skipping:
+                    continue
 
-            if score > best_score:
-                best_score = score
-                best_result = (cntr, u, d, fpc, cov_matrices)
-                best_epsilon = eps
+                score_iter = silhouette_score(X, labels_iter)
 
-        except np.linalg.LinAlgError:
-            continue    # If we get a singular matrix error, ignore it and move to the next epsilon with the
+                if score_iter > current_epsilon_best_score:
+                    current_epsilon_best_score = score_iter
+                    current_epsilon_best_result_for_init = (cntr_iter, u_iter, d_iter, fpc_iter, cov_matrices_iter)
 
-    return best_result + (best_epsilon,)
+            except np.linalg.LinAlgError as e:
+                print(f"[Warning CK TuneEpsilon] LinAlgError for eps {eps}, init {init_iter+1}: {e}")
+                continue # Skip this iteration
+            except ValueError as e: # Might be raised by silhouette_score if labels are problematic
+                print(f"[Warning CK TuneEpsilon] ValueError for eps {eps}, init {init_iter+1}: {e}")
+                continue # Skip this iteration
+            except Exception as e:
+                print(f"[Warning CK TuneEpsilon] Unexpected error for eps {eps}, init {init_iter+1}: {e}")
+                continue
+
+        # After all n_init for current epsilon
+        if current_epsilon_best_result_for_init is not None and current_epsilon_best_score > best_overall_score:
+            best_overall_score = current_epsilon_best_score
+            best_overall_result = current_epsilon_best_result_for_init
+            best_overall_epsilon = eps
+
+    if best_overall_result is None:
+        # Fallback if no valid result was found after all eps and inits (e.g., all singular matrices or <2 labels)
+        print("[ERROR CK TuneEpsilon] No valid clustering result found after all trials. Returning None.")
+        # Or raise an error, or return a dummy/default result
+        # For now, let's return Nones, which will likely cause issues upstream, highlighting the problem.
+        return None, None, None, None, None, None
+
+
+    # Unpack the best overall result
+    cntr, u, d, fpc, cov_matrices = best_overall_result
+    return cntr, u, d, fpc, cov_matrices, best_overall_epsilon

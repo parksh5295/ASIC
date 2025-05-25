@@ -49,16 +49,19 @@ def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, origi
             print(f"Unsupported GMM specification: {clustering_algorithm_choice} (Non-Autotune)")
             raise Exception(f"Unsupported GMM specification: {clustering_algorithm_choice}")
         
-        pre_clustering_result = pre_clustering_GMM(data, X_reduced_features, parameter_dict['n_clusters'], parameter_dict['random_state'], GMM_type)
+        pre_clustering_result = pre_clustering_GMM(data, X_reduced_features, parameter_dict['n_clusters'], parameter_dict['random_state'], GMM_type, n_init=parameter_dict['n_init'])
 
     elif clustering_algorithm_choice == 'SGMM':
-        pre_clustering_result = pre_clustering_SGMM(data, X_reduced_features, parameter_dict['n_clusters'], parameter_dict['random_state'])
+        pre_clustering_result = pre_clustering_SGMM(data, X_reduced_features, 
+                                                    parameter_dict['n_clusters'], 
+                                                    parameter_dict['random_state'],
+                                                    n_init=parameter_dict['n_init'])
 
     elif clustering_algorithm_choice in ['Gmeans', 'gmeans']:
-        pre_clustering_result = pre_clustering_Gmeans(data, X_reduced_features, parameter_dict['random_state'], parameter_dict['max_clusters'], parameter_dict['tol'])
+        pre_clustering_result = pre_clustering_Gmeans(data, X_reduced_features, parameter_dict['random_state'], parameter_dict['max_clusters'], parameter_dict['tol'], n_init=parameter_dict['n_init'])
 
     elif clustering_algorithm_choice in ['Xmeans', 'xmeans']:
-        pre_clustering_result = pre_clustering_Xmeans(data, X_reduced_features, parameter_dict['random_state'], parameter_dict['max_clusters'])
+        pre_clustering_result = pre_clustering_Xmeans(data, X_reduced_features, parameter_dict['random_state'], parameter_dict['max_clusters'], n_init=parameter_dict['n_init'])
 
     elif clustering_algorithm_choice == 'DBSCAN':
         pre_clustering_result = pre_clustering_DBSCAN(data, X_reduced_features, parameter_dict['eps'], parameter_dict['count_samples'])
@@ -70,7 +73,7 @@ def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, origi
         pre_clustering_result = pre_clustering_FCM(data, X_reduced_features, parameter_dict['n_clusters'])
 
     elif clustering_algorithm_choice == 'CK':
-        pre_clustering_result = pre_clustering_CK(data, X_reduced_features, parameter_dict['n_clusters'])
+        pre_clustering_result = pre_clustering_CK(data, X_reduced_features, parameter_dict['n_clusters'], n_init_for_ck=parameter_dict['n_init'])
 
     elif clustering_algorithm_choice == 'NeuralGas':
         pre_clustering_result = pre_clustering_NeuralGas(data, X_reduced_features, parameter_dict['n_start_nodes'], parameter_dict['max_nodes'], parameter_dict['step'], parameter_dict['max_edge_age'])

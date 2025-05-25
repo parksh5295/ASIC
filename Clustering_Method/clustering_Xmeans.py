@@ -9,15 +9,19 @@ from sklearn.metrics import silhouette_score
 from utils.progressing_bar import progress_bar
 from Tuning_hyperparameter.Grid_search import Grid_search_all
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
+import numpy as np
 
 # X-Means Clustering Function
-def x_means_clustering(X, random_state, max_clusters):
+def x_means_clustering(X, random_state, max_clusters, n_init=30):
     best_score = -1
     best_model = None
     best_k = 2
     for k in range(2, max_clusters + 1):
-        model = KMeans(n_clusters=k, random_state=random_state, n_init=50)
+        model = KMeans(n_clusters=k, random_state=random_state, n_init=n_init)
         labels = model.fit_predict(X)
+        if len(np.unique(labels)) < 2:
+            continue
+        
         silhouette_avg = silhouette_score(X, labels)
         if silhouette_avg > best_score:
             best_score = silhouette_avg
@@ -25,10 +29,21 @@ def x_means_clustering(X, random_state, max_clusters):
             best_k = k
     return best_model, best_k
 
-def clustering_Xmeans_clustering(data, X, random_state, max_clusters):  # Fundamental Xmeans clustering
+def clustering_Xmeans_clustering(data, X, random_state, max_clusters, n_init=30):  # Fundamental Xmeans clustering, Added n_init
     # default; max=clusters=10,
     # Perform Y-Means Clustering
-    model, optimal_k = x_means_clustering(X, random_state, max_clusters)
+    model, optimal_k = x_means_clustering(X, random_state, max_clusters, n_init=n_init) # Pass n_init
+    if model is None: # x_means_clustering might return None if no valid k is found
+        print("[Warning clustering_Xmeans_clustering] x_means_clustering returned no model. Defaulting to k=2 or empty labels.")
+        # Handle this case: maybe run a simple KMeans with k=2 as a fallback or return error indicating labels
+        # For now, let's assume if model is None, optimal_k might also be problematic, return empty or default.
+        # This depends on how x_means_clustering handles the case where all k fail.
+        # Based on current x_means_clustering, best_model could remain None if all silhouette_scores are <= -1 (initial best_score)
+        # Or if all k iterations are skipped due to < 2 unique labels.
+        # A more robust x_means_clustering would ensure it always returns *some* model or raises error.
+        # Assuming if model is None, we can't get labels. Returning empty labels and default k=0 or 2.
+        return np.array([]), 2 # Or raise an error
+
     clusters = model.labels_
 
     return clusters, optimal_k
@@ -40,7 +55,12 @@ def clustering_Xmeans(data, X, aligned_original_labels, global_known_normal_samp
     parameter_dict = tune_parameters['Xmeans']['all_params']
     parameter_dict.update(best_params)
 
-    clusters, num_clusters = clustering_Xmeans_clustering(data, X, random_state=parameter_dict['random_state'], max_clusters=parameter_dict['max_clusters'])
+    # Ensure n_init is passed, using value from parameter_dict if available, else default to 30
+    n_init_val = parameter_dict.get('n_init', 30)
+    clusters, num_clusters = clustering_Xmeans_clustering(data, X, 
+                                                        random_state=parameter_dict['random_state'], 
+                                                        max_clusters=parameter_dict['max_clusters'],
+                                                        n_init=n_init_val) # Pass n_init
 
     # Debug cluster id (X is the data used for clustering)
     print(f"\n[DEBUG XMeans main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
@@ -60,15 +80,16 @@ def clustering_Xmeans(data, X, aligned_original_labels, global_known_normal_samp
 
 # Auxiliary class for Grid Search
 class XMeansWrapper(BaseEstimator, ClusterMixin):
-    def __init__(self, random_state=42, max_clusters=10):
+    def __init__(self, random_state=42, max_clusters=10, n_init=30):
         # Automatically assign a value for __init__ if no input value is present
         self.random_state = random_state
         self.max_clusters = max_clusters
+        self.n_init = n_init
         self.model = None
         self.best_k = None
 
     def fit(self, X, y=None):
-        self.model, self.best_k = x_means_clustering(X, self.random_state, self.max_clusters)
+        self.model, self.best_k = x_means_clustering(X, self.random_state, self.max_clusters, n_init=self.n_init)
         return self
 
     def predict(self, X):
@@ -79,9 +100,9 @@ class XMeansWrapper(BaseEstimator, ClusterMixin):
         return self.predict(X)
     
 
-def pre_clustering_Xmeans(data, X, random_state, max_clusters):
+def pre_clustering_Xmeans(data, X, random_state, max_clusters, n_init=30):
     # clusters are model-generated labels before CNI, num_clusters_optimal is the k found by x_means_clustering
-    cluster_labels, num_clusters_optimal = clustering_Xmeans_clustering(data, X, random_state, max_clusters)
+    cluster_labels, num_clusters_optimal = clustering_Xmeans_clustering(data, X, random_state, max_clusters, n_init=n_init)
 
     return {
         'model_labels' : cluster_labels,

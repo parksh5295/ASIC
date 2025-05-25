@@ -14,10 +14,11 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 
 class GMeans:
-    def __init__(self, max_clusters=10, tol=1e-4, random_state=None):
+    def __init__(self, max_clusters=10, tol=1e-4, random_state=None, n_init=30):
         self.max_clusters = max_clusters
         self.tol = tol
         self.random_state = random_state
+        self.n_init = n_init
         self.labels_ = None
         self.cluster_centers_ = None
 
@@ -40,7 +41,7 @@ class GMeans:
                 continue
 
             # Clustering with K-means (k=2)
-            kmeans = KMeans(n_clusters=2, tol=self.tol, random_state=self.random_state)
+            kmeans = KMeans(n_clusters=2, tol=self.tol, random_state=self.random_state, n_init=self.n_init)
             kmeans.fit(data)
             new_labels = kmeans.labels_
 
@@ -109,9 +110,9 @@ def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samp
     }
 
 
-def pre_clustering_Gmeans(data, X, random_state, max_clusters, tol):
+def pre_clustering_Gmeans(data, X, random_state, max_clusters, tol, n_init=30):
     # G-means Clustering
-    gmeans = GMeans(random_state=random_state, max_clusters=max_clusters, tol=tol) # Pass params to GMeans class constructor
+    gmeans = GMeans(random_state=random_state, max_clusters=max_clusters, tol=tol, n_init=n_init) # Pass n_init to GMeans
     cluster_labels = gmeans.fit_predict(X)
     n_clusters_actual = len(np.unique(cluster_labels))  # Actual number of clusters found by GMeans
 
