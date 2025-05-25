@@ -36,6 +36,7 @@ def interval_length_same(df, features):
 
     results_list = []
     if tasks:
+        '''
         num_processes = min(len(tasks), multiprocessing.cpu_count())
         # print(f"[interval_length_same] Using {num_processes} processes for {len(tasks)} features.")
         try:
@@ -44,6 +45,9 @@ def interval_length_same(df, features):
         except Exception as e:
             print(f"Error during parallel processing in interval_length_same: {e}. Falling back to sequential.")
             results_list = [_process_feature_same(task) for task in tasks]
+        '''
+        # print(f"[interval_length_same] Processing {len(tasks)} features sequentially.") # Optional: log sequential processing
+        results_list = [_process_feature_same(task) for task in tasks] # Changed to sequential processing
 
     bin_series_list = []
     group_mapping_info = {}
@@ -90,6 +94,7 @@ def interval_length_Inverse_Count(df, features):
 
     results_list = []
     if tasks:
+        '''
         num_processes = min(len(tasks), multiprocessing.cpu_count())
         # print(f"[interval_length_Inverse_Count] Using {num_processes} processes for {len(tasks)} features.")
         try:
@@ -98,6 +103,9 @@ def interval_length_Inverse_Count(df, features):
         except Exception as e:
             print(f"Error during parallel processing in interval_length_Inverse_Count: {e}. Falling back to sequential.")
             results_list = [_process_feature_inverse(task) for task in tasks]
+        '''
+        # print(f"[interval_length_Inverse_Count] Processing {len(tasks)} features sequentially.") # Optional: log sequential processing
+        results_list = [_process_feature_inverse(task) for task in tasks] # Changed to sequential processing
             
     bin_series_list = []
     group_mapping_info = {}
