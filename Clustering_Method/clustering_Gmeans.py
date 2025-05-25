@@ -78,7 +78,7 @@ class GMeans:
         return self.fit(X).labels_
 
 
-def clustering_Gmeans(data, X, aligned_original_labels):
+def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
     tune_parameters = Grid_search_all(X, 'Gmeans')
 
     if not tune_parameters or 'Gmeans' not in tune_parameters or not tune_parameters['Gmeans']['best_params']:
@@ -99,7 +99,7 @@ def clustering_Gmeans(data, X, aligned_original_labels):
     # print(f"[DEBUG GMeans main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     # predict_Gmeans = data['cluster'] # Old way
     

@@ -11,7 +11,7 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 from Clustering_Method.clustering_GMM import fit_gmm_with_retry
 
 
-def clustering_SGMM(data, X, max_clusters, original_labels_aligned):
+def clustering_SGMM(data, X, max_clusters, original_labels_aligned, global_known_normal_samples_pca=None):
     # Define an initial parameter_dict that includes reg_covar
     # This will be passed to Elbow_method, which might use its own default if this is None,
     # but it's good practice to define it here for clarity and control.
@@ -52,7 +52,7 @@ def clustering_SGMM(data, X, max_clusters, original_labels_aligned):
     # print(f"[DEBUG SGMM main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, original_labels_aligned, cluster_labels, n_clusters)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, original_labels_aligned, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
     num_clusters_after_cni = len(np.unique(final_cluster_labels_from_cni))
 
     return {

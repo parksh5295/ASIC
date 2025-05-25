@@ -177,7 +177,7 @@ def pre_clustering_CANNwKNN(data, X, epochs, batch_size, n_neighbors):
     predict_CANNwKNN = predictions
 
     return {
-        'Cluster_labeling' : predict_CANNwKNN,
+        'model_labels' : predict_CANNwKNN,
         'n_clusters' : 2,
         'before_labeling' : predictions
     }

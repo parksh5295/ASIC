@@ -34,7 +34,7 @@ def clustering_Xmeans_clustering(data, X, random_state, max_clusters):  # Fundam
     return clusters, optimal_k
 
 
-def clustering_Xmeans(data, X, aligned_original_labels):
+def clustering_Xmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
     tune_parameters = Grid_search_all(X, 'Xmeans')
     best_params = tune_parameters['Xmeans']['best_params']
     parameter_dict = tune_parameters['Xmeans']['all_params']
@@ -48,7 +48,7 @@ def clustering_Xmeans(data, X, aligned_original_labels):
     # print(f"[DEBUG XMeans main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     # predict_Xmeans = data['cluster'] # Old way
 

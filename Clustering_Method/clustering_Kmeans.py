@@ -9,7 +9,7 @@ from Tuning_hyperparameter.Loop_elbow_gs import loop_tuning
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_Kmeans(data, X, max_clusters, aligned_original_labels): # main clustering
+def clustering_Kmeans(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None): # main clustering
     clustering_result_dict = loop_tuning(data, X, 'Kmeans', max_clusters)
     n_clusters = clustering_result_dict['optimal_cluster_n']
     best_parameter_dict = clustering_result_dict['best_parameter_dict']
@@ -24,7 +24,7 @@ def clustering_Kmeans(data, X, max_clusters, aligned_original_labels): # main cl
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
     # The result from CNI is directly used, not assigned to data['cluster'] here.
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     # predict_kmeans = data['cluster'] # Old way
 

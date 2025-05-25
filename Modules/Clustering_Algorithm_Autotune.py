@@ -15,7 +15,7 @@ from Clustering_Method.clustering_NeuralGas import clustering_NeuralGas
 from Clustering_Method.clustering_CANNwKNN import clustering_CANNwKNN
 
 
-def choose_clustering_algorithm(data, X_reduced_features, original_labels_aligned, clustering_algorithm_choice, max_clusters=1000):
+def choose_clustering_algorithm(data, X_reduced_features, original_labels_aligned, clustering_algorithm_choice, max_clusters=1000, global_known_normal_samples_pca=None):
     '''
     parameter_dict = {'random_state' : random_state, 'n_init' : n_init, 'max_clusters' : max_clusters, 'tol' : tol, 'eps' : eps,
                         'count_samples' : count_samples, 'quantile' : quantile, 'n_samples' : n_samples, 'n_start_nodes' : n_start_nodes,
@@ -31,42 +31,44 @@ def choose_clustering_algorithm(data, X_reduced_features, original_labels_aligne
     # X_reduced_features is the actual input for clustering.
 
     if clustering_algorithm_choice in ['Kmeans', 'kmeans']:
-        clustering = clustering_Kmeans(data, X_reduced_features, max_clusters, original_labels_aligned)
+        clustering = clustering_Kmeans(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice in ['Kmedians', 'kmedians']:
-        clustering = clustering_Kmedians(data, X_reduced_features, max_clusters, original_labels_aligned)
+        clustering = clustering_Kmedians(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'GMM':
         GMM_type = input("Please enter the GMM type, i.e. normal, full, tied, diag: ")
-        clustering = clustering_GMM(data, X_reduced_features, max_clusters, GMM_type, original_labels_aligned)
+        clustering = clustering_GMM(data, X_reduced_features, max_clusters, GMM_type, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'SGMM':
-        clustering = clustering_SGMM(data, X_reduced_features, max_clusters, original_labels_aligned)
+        clustering = clustering_SGMM(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice in ['Gmeans', 'gmeans']:
-        clustering = clustering_Gmeans(data, X_reduced_features, original_labels_aligned)
+        clustering = clustering_Gmeans(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice in ['Xmeans', 'xmeans']:
-        clustering = clustering_Xmeans(data, X_reduced_features, original_labels_aligned)
+        clustering = clustering_Xmeans(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'DBSCAN':
-        clustering = clustering_DBSCAN(data, X_reduced_features, original_labels_aligned)
+        clustering = clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'MShift':
-        clustering = clustering_MShift(data, X_reduced_features, original_labels_aligned)
+        clustering = clustering_MShift(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'FCM':
-        clustering = clustering_FCM(data, X_reduced_features, max_clusters, original_labels_aligned)
+        clustering = clustering_FCM(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'CK':
-        clustering = clustering_CK(data, X_reduced_features, max_clusters, original_labels_aligned)
+        clustering = clustering_CK(data, X_reduced_features, max_clusters, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice == 'NeuralGas':
-        clustering = clustering_NeuralGas(data, X_reduced_features, original_labels_aligned)
+        clustering = clustering_NeuralGas(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     elif clustering_algorithm_choice in ['CANNwKNN', 'CANN']:
-        print(f"[INFO] CANNwKNN/CANN selected. Passing original_labels_aligned for consistency, though it might not be used by its internal logic if CNI is bypassed.")
-        clustering = clustering_CANNwKNN(data, X_reduced_features, original_labels_aligned)
+        print(f"[INFO] CANNwKNN/CANN selected. Passing global_known_normal_samples_pca for consistency if its CNI call is ever updated.")
+        # Assuming CANNwKNN might eventually call CNI or a similar function that could use this.
+        # If it directly bypasses CNI and uses its own labeling, this param might not be used by it currently.
+        clustering = clustering_CANNwKNN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     else:
         print("Unsupported algorithm")

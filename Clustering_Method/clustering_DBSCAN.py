@@ -20,7 +20,7 @@ def clustering_DBSCAN_clustering(data, X, eps, count_samples):  # Fundamental DB
     return clusters, num_clusters, dbscan
 
 
-def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned):
+def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None):
     parameter_dict = {
         'eps': 0.5,
         'count_samples': 5  # Used as min_samples in DBSCAN
@@ -59,7 +59,7 @@ def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned):
     
     # Identify Clustering results as normal/abnormal
     # clustering_nomal_identify function takes X, original_labels_aligned, cluster_labels, n_clusters as arguments.
-    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual, global_known_normal_samples_pca=global_known_normal_samples_pca)
     num_clusters_after_cni = len(np.unique(final_cluster_labels_from_cni))
 
     return {

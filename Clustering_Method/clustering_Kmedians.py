@@ -10,7 +10,7 @@ from Tuning_hyperparameter.Elbow_method import Elbow_method
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_Kmedians(data, X, max_clusters, aligned_original_labels):
+def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
     after_elbow = Elbow_method(data, X, 'Kmedians', max_clusters)
     n_clusters = after_elbow['optimul_cluster_n']
     parameter_dict = after_elbow['parameter_dict']
@@ -25,7 +25,7 @@ def clustering_Kmedians(data, X, max_clusters, aligned_original_labels):
     # print(f"[DEBUG KMedians main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
 
     # predict_kmedians = data['cluster'] # Old way
 
