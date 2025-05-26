@@ -256,7 +256,7 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
         create_model = create_model_local
     
     elif clustering_algorithm == 'MShift':
-        MeanShiftWithDynamicBandwidth = dynamic_import("Clustering_Method.clustering_Mshift", "MeanShiftWithDynamicBandwidth")
+        MeanShiftWithDynamicBandwidth = dynamic_import("Clustering_Method.clustering_MShift", "MeanShiftWithDynamicBandwidth")
         param_grid = {'quantile': np.arange(0.01, 0.31, 0.05), 'n_samples': list(range(50, 210, 30))}
         def create_model_local(params_local):
             return MeanShiftWithDynamicBandwidth(**params_local)
