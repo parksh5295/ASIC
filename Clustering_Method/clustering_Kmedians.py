@@ -12,7 +12,7 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
     after_elbow = Elbow_method(data, X, 'Kmedians', max_clusters)
-    n_clusters = after_elbow['optimul_cluster_n']
+    n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['parameter_dict']
 
     kmedians = KMedoids(n_clusters=n_clusters, random_state=parameter_dict['random_state'])   # default; randomm_state=42
