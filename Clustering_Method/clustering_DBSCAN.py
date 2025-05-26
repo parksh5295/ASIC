@@ -21,41 +21,20 @@ def clustering_DBSCAN_clustering(data, X, eps, count_samples):  # Fundamental DB
 
 
 def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None):
-    parameter_dict = {
-        'eps': 0.5,
-        'count_samples': 5  # Used as min_samples in DBSCAN
-    }
-
-    # Hyperparameter Tuning for DBSCAN
-    # Grid_search_all takes X, clustering_algorithm, and parameter_dict as arguments.
-    # pass a copy to avoid modifying the original parameter_dict
-    grid_search_results = Grid_search_all(X_reduced_features, 'DBSCAN', parameter_dict.copy()) 
+    # Using internal defaults due to not passing parameter_dict when calling Grid_search_all
+    parameter_dict = Grid_search_all(X_reduced_features, 'DBSCAN') 
     
-    # grid_search_results is a dictionary with algorithm name as key.
-    # Get the best_params from the DBSCAN results.
-    dbscan_results = grid_search_results.get('DBSCAN', {})
-    best_params = dbscan_results.get('best_params')
+    # Using internal defaults due to not passing parameter_dict when calling Grid_search_all
+    # Default parameter_dict inside Grid_search_all in Grid_search.py: 'eps': 0.5, 'count_samples': 5
+    eps_val = parameter_dict.get('eps', 0.5) 
+    # Grid_search_all is optimized for 'min_samples', so check that key first.
+    # 'count_samples' is a key of the default value inside Grid_search_all.
+    min_samples_val = parameter_dict.get('min_samples', parameter_dict.get('count_samples', 5))
 
-    # Update parameter_dict only if best_params is found.
-    if best_params is not None:
-        parameter_dict.update(best_params)
-        print(f"DBSCAN: Updated parameters with grid search results: {best_params}")
-    else:
-        print("Warning: best_params for DBSCAN not found in grid search results. Using default parameters from initial parameter_dict.")
-
-    # Get eps and min_samples (count_samples) from parameter_dict.
-    # GridSearch optimizes for 'min_samples', so we check that key first.
-    eps = parameter_dict.get('eps', 0.5) 
-    min_samples_from_grid = parameter_dict.get('min_samples') # GridSearch can return 'min_samples'
-
-    if min_samples_from_grid is not None:
-        count_samples = min_samples_from_grid
-    else:
-        count_samples = parameter_dict.get('count_samples', 5) # Initial or updated count_samples
+    print(f"DBSCAN: Using parameters eps={eps_val}, min_samples={min_samples_val}")
     
     # Perform DBSCAN Clustering
-    # clustering_DBSCAN_clustering function takes data, X, eps, count_samples as arguments.
-    predict_DBSCAN, num_clusters_actual, dbscan_model = clustering_DBSCAN_clustering(data, X_reduced_features, eps, count_samples)
+    predict_DBSCAN, num_clusters_actual, dbscan_model = clustering_DBSCAN_clustering(data, X_reduced_features, eps_val, min_samples_val)
     
     # Identify Clustering results as normal/abnormal
     # clustering_nomal_identify function takes X, original_labels_aligned, cluster_labels, n_clusters as arguments.

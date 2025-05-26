@@ -50,16 +50,17 @@ def clustering_Xmeans_clustering(data, X, random_state, max_clusters, n_init=30)
 
 
 def clustering_Xmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
-    tune_parameters = Grid_search_all(X, 'Xmeans')
-    best_params = tune_parameters['Xmeans']['best_params']
-    parameter_dict = tune_parameters['Xmeans']['all_params']
-    parameter_dict.update(best_params)
+    # Grid_search_all returns a parameter_dict with best_params already applied.
+    parameter_dict = Grid_search_all(X, 'Xmeans')
 
-    # Ensure n_init is passed, using value from parameter_dict if available, else default to 30
-    n_init_val = parameter_dict.get('n_init', 30)
+    # Get the values directly from the parameter_dict
+    random_state_val = parameter_dict.get('random_state', 42)
+    max_clusters_val = parameter_dict.get('max_clusters', 1000) # Default value or desired value
+    n_init_val = parameter_dict.get('n_init', 30) # Default value or desired value
+
     clusters, num_clusters = clustering_Xmeans_clustering(data, X, 
-                                                        random_state=parameter_dict['random_state'], 
-                                                        max_clusters=parameter_dict['max_clusters'],
+                                                        random_state=random_state_val, 
+                                                        max_clusters=max_clusters_val,
                                                         n_init=n_init_val) # Pass n_init
 
     # Debug cluster id (X is the data used for clustering)

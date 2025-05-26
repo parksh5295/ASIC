@@ -45,21 +45,25 @@ def clustering_CANNwKNN(data, X, aligned_original_labels):   # data, X is pansda
     y_benign = np.zeros(len(X_benign))  # benign is considered label 0
 
     # Create & tune model
-    tune_parameters = Grid_search_all(X, 'CANNwKNN', None, data)  # ONLY benign!
-    best_params = tune_parameters['CANNwKNN']['best_params']
-    parameter_dict = tune_parameters['CANNwKNN']['all_params']
-    parameter_dict.update(best_params)
+    parameter_dict = Grid_search_all(X, 'CANNwKNN', None, data)
+    # print('parameter_dict from Grid_search_all for CANNwKNN: ', parameter_dict)
+
+    # Get the values directly from the parameter_dict
+    # CANNwKNN uses epochs, batch_size, n_neighbors
+    epochs_val = parameter_dict.get('epochs', 300) # Default value or optimized value from Grid_search_all
+    batch_size_val = parameter_dict.get('batch_size', 256)
+    n_neighbors_val = parameter_dict.get('n_neighbors', 5)
 
     # Train CANN on benign only
     cann = create_cann_model(input_shape)
-    cann.fit(X_benign, y_benign, epochs=parameter_dict['epochs'], batch_size=parameter_dict['batch_size'])
+    cann.fit(X_benign, y_benign, epochs=epochs_val, batch_size=batch_size_val)
 
     # Feature extraction
     features_all = cann.predict(X)  # Extract for all data
     features_benign = cann.predict(X_benign)
 
     # Train KNN on benign features only
-    knn = KNeighborsClassifier(n_neighbors=parameter_dict['n_neighbors'])
+    knn = KNeighborsClassifier(n_neighbors=n_neighbors_val)
     knn.fit(features_benign, y_benign)
 
     # Predict for all data

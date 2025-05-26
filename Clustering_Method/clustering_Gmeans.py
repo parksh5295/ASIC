@@ -80,17 +80,35 @@ class GMeans:
 
 
 def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
-    tune_parameters = Grid_search_all(X, 'Gmeans')
+    # Grid_search_all returns a parameter_dict with best_params already applied.
+    parameter_dict = Grid_search_all(X, 'Gmeans')
 
-    if not tune_parameters or 'Gmeans' not in tune_parameters or not tune_parameters['Gmeans']['best_params']:
-        raise ValueError("Grid search for GMeans failed: No best parameters found.")
-
-    best_params = tune_parameters['Gmeans']['best_params']
-    parameter_dict = tune_parameters['Gmeans']['all_params']
-    parameter_dict.update(best_params)
+    # The parameter_dict returned by Grid_search_all already contains the optimal values, or default values if it fails.
+    # If you need additional failure handling, you can check the contents of parameter_dict (e.g., specific key presence, score value).
+    # For example, if the silhouette_score_from_grid key is not present or -1, you can consider it a failure.
+    if parameter_dict is None or parameter_dict.get('silhouette_score_from_grid', -1) == -1: # Example condition
+        # Grid_search_all failed or did not find valid results, use default values or raise an error
+        # Here, we raise an example ValueError, but adjust as needed for actual requirements
+        print("Warning: Grid search for GMeans might have failed or returned default/no-op parameters.")
+        # raise ValueError("Grid search for GMeans failed to find optimal parameters or returned default.")
+        # Set default values (similar to those inside Grid_search_all)
+        if parameter_dict is None: parameter_dict = {}
+        random_state_val = parameter_dict.get('random_state', 42)
+        max_clusters_val = parameter_dict.get('max_clusters', 1000)
+        tol_val = parameter_dict.get('tol', 1e-4)
+        n_init_val = parameter_dict.get('n_init', 30) # If GMeans class also accepts n_init, modify it
+    else:
+        # Successfully get parameters from Grid_search_all
+        random_state_val = parameter_dict.get('random_state')
+        max_clusters_val = parameter_dict.get('max_clusters')
+        tol_val = parameter_dict.get('tol')
+        n_init_val = parameter_dict.get('n_init', 30) # If GMeans class also accepts n_init, modify it
 
     # G-means Clustering (using GaussianMixture)
-    gmeans = GMeans(random_state=parameter_dict['random_state'], max_clusters=parameter_dict['max_clusters'], tol=parameter_dict['tol'])
+    gmeans = GMeans(random_state=random_state_val, 
+                    max_clusters=max_clusters_val, 
+                    tol=tol_val,
+                    n_init=n_init_val) # Add n_init if GMeans class also accepts it
     clusters = gmeans.fit_predict(X)
     n_clusters = len(np.unique(clusters))  # Counting the number of clusters
 

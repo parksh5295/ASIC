@@ -24,19 +24,22 @@ def clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max
 
 
 def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
-    tune_parameters = Grid_search_all(X, 'NeuralGas')
-    print('tune_params: ', tune_parameters)
+    # Grid_search_all returns a parameter_dict with best_params already applied.
+    parameter_dict = Grid_search_all(X, 'NeuralGas')
+    # print('parameter_dict from Grid_search_all: ', parameter_dict)
 
-    best_params = tune_parameters['NeuralGas']['best_params']
-    parameter_dict = tune_parameters['NeuralGas']['all_params']
-    parameter_dict.update(best_params)
+    # Get the values directly from the parameter_dict
+    n_start_nodes_val = parameter_dict.get('n_start_nodes', 2)
+    max_nodes_val = parameter_dict.get('max_nodes', 50)
+    step_val = parameter_dict.get('step', 0.2)
+    max_edge_age_val = parameter_dict.get('max_edge_age', 50)
 
     clusters, num_clusters = clustering_NeuralGas_clustering(
         data, X,
-        n_start_nodes=parameter_dict['n_start_nodes'],
-        max_nodes=parameter_dict['max_nodes'],
-        step=parameter_dict['step'],
-        max_edge_age=parameter_dict['max_edge_age']
+        n_start_nodes=n_start_nodes_val,
+        max_nodes=max_nodes_val,
+        step=step_val,
+        max_edge_age=max_edge_age_val
     )
 
     # Debug cluster id (X is the data used for clustering)

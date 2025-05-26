@@ -18,31 +18,26 @@ def clustering_MShift_clustering(data, X, state, quantile, n_samples):  # Fundam
         bandwidth = 0.1  # Minimum safe value
     
     # Apply MeanShift with the estimated bandwidth
-    MShift = MeanShift(bandwidth=bandwidth, bin_seeding=True)
-    clusters = MShift.fit_predict(X)
+    MShift_model = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+    clusters = MShift_model.fit_predict(X)
 
     num_clusters = len(np.unique(clusters))  # Counting the number of clusters
     
-    return clusters, num_clusters, MShift
+    return clusters, num_clusters, MShift_model
 
 
 def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
-    tune_parameters = Grid_search_all(X, 'MShift')
-    best_params = tune_parameters['MShift']['best_params']
-    parameter_dict = tune_parameters['MShift']['all_params']
-    parameter_dict.update(best_params)
+    parameter_dict = Grid_search_all(X, 'MShift')
 
-    clusters, num_clusters, MShift = clustering_MShift_clustering(data, X, state=parameter_dict['random_state'], quantile=parameter_dict['quantile'], n_samples=parameter_dict['n_samples'])
+    random_state_val = parameter_dict.get('random_state', 42)
+    quantile_val = parameter_dict.get('quantile', 0.15) 
+    n_samples_val = parameter_dict.get('n_samples', 100)
 
-    # Debug cluster id (X is the data used for clustering)
+    clusters, num_clusters, MShift_model_instance = clustering_MShift_clustering(data, X, state=random_state_val, quantile=quantile_val, n_samples=n_samples_val)
+
     print(f"\n[DEBUG MeanShift main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
-    # aligned_original_labels shape will be printed inside CNI
-    # print(f"[DEBUG MeanShift main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
-    # Pass X (features used for clustering) and aligned_original_labels to CNI
     final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
-
-    # predict_MShift = data['cluster'] # Old way
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni, # Use labels from CNI
@@ -80,11 +75,10 @@ class MeanShiftWithDynamicBandwidth(BaseEstimator, ClusterMixin):
     
 
 def pre_clustering_MShift(data, X, random_state, quantile, n_samples):
-    # cluster_labels are model-generated labels, num_clusters_actual is the count of unique labels found by MeanShift
-    cluster_labels, num_clusters_actual, MShift = clustering_MShift_clustering(data, X, random_state, quantile, n_samples)
+    cluster_labels, num_clusters_actual, MShift_model_obj = clustering_MShift_clustering(data, X, random_state, quantile, n_samples)
 
     return {
         'model_labels' : cluster_labels,
         'n_clusters' : num_clusters_actual, # Actual n_clusters from MeanShift
-        'before_labeling' : MShift
+        'before_labeling' : MShift_model_obj
     }
