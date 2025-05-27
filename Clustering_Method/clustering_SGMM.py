@@ -22,7 +22,8 @@ def clustering_SGMM(data, X, max_clusters, original_labels_aligned, global_known
     }
 
     # Elbow_method now expects a parameter_dict and will use reg_covar from it for SGMM
-    after_elbow = Elbow_method(data, X, 'SGMM', max_clusters, parameter_dict=initial_parameter_dict.copy())
+    sgmm_specific_max_clusters = min(max_clusters, 50) # SGMM only tests up to 50
+    after_elbow = Elbow_method(data, X, 'SGMM', sgmm_specific_max_clusters, parameter_dict=initial_parameter_dict.copy())
     n_clusters = after_elbow['optimal_cluster_n']
     
     # The parameter_dict returned by Elbow_method should contain the used random_state and reg_covar

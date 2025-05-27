@@ -10,7 +10,8 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 
 def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
-    after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
+    gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
+    after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
@@ -39,7 +40,8 @@ def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global
 
 
 def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
-    after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
+    gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
+    after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
@@ -68,7 +70,8 @@ def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_k
 
 
 def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
-    after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
+    gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
+    after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
@@ -97,7 +100,8 @@ def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_k
 
 
 def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
-    after_elbow = Elbow_method(data, X, 'GMM', max_clusters)
+    gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
+    after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
