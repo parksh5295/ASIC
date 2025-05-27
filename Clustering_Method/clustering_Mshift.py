@@ -26,7 +26,7 @@ def clustering_MShift_clustering(data, X, state, quantile, n_samples):  # Fundam
     return clusters, num_clusters, MShift_model
 
 
-def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     parameter_dict = Grid_search_all(X, 'MShift')
 
     random_state_val = parameter_dict.get('random_state', 42)
@@ -37,7 +37,7 @@ def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samp
 
     print(f"\n[DEBUG MeanShift main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
 
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni, # Use labels from CNI

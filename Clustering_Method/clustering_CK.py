@@ -137,7 +137,7 @@ def ck_predict(X_new, cntr, cov_matrices, m=2):
     return u
 
 
-def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     after_elbow = Elbow_method(data, X, 'CK', max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict'] # This dict might have 'n_init' from Elbow's base params
@@ -168,7 +168,7 @@ def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_n
     # print(f"[DEBUG CK main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     # predict_CK = data['cluster'] # Old way
 

@@ -9,7 +9,7 @@ from Tuning_hyperparameter.Elbow_method import Elbow_method
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
     after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
@@ -29,7 +29,7 @@ def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global
     # print(f"[DEBUG GMM-normal main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     # predict_GMM = data['cluster'] # Old way
 
@@ -39,7 +39,7 @@ def clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global
     }
 
 
-def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
     after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
@@ -59,7 +59,7 @@ def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_k
     # print(f"[DEBUG GMM-full main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
         
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     # predict_GMM = data['cluster'] # Old way
 
@@ -69,7 +69,7 @@ def clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_k
     }
 
 
-def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
     after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
@@ -89,7 +89,7 @@ def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_k
     # print(f"[DEBUG GMM-tied main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
         
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     # predict_GMM = data['cluster'] # Old way
 
@@ -99,7 +99,7 @@ def clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_k
     }
 
 
-def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     gmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
     after_elbow = Elbow_method(data, X, 'GMM', gmm_specific_max_clusters)
     n_clusters = after_elbow['optimal_cluster_n']
@@ -119,7 +119,7 @@ def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_k
     # print(f"[DEBUG GMM-diag main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
 
     # predict_GMM = data['cluster'] # Old way
 
@@ -129,15 +129,15 @@ def clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_k
     }
 
 
-def clustering_GMM(data, X, max_clusters, GMM_type, aligned_original_labels, global_known_normal_samples_pca=None):
+def clustering_GMM(data, X, max_clusters, GMM_type, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
     if GMM_type == 'normal':
-        predict_GMM_dict = clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca)
+        predict_GMM_dict = clustering_GMM_normal(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
     elif GMM_type == 'full':
-        predict_GMM_dict = clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca)
+        predict_GMM_dict = clustering_GMM_full(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
     elif GMM_type == 'tied':
-        predict_GMM_dict = clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca)
+        predict_GMM_dict = clustering_GMM_tied(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
     elif GMM_type == 'diag':
-        predict_GMM_dict = clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca)
+        predict_GMM_dict = clustering_GMM_diag(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
     else:
         print("GMM type Error!! -In Clustering")
         # Consider raising an error or returning a specific structure indicating failure

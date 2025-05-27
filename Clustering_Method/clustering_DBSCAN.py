@@ -20,7 +20,7 @@ def clustering_DBSCAN_clustering(data, X, eps, count_samples):  # Fundamental DB
     return clusters, num_clusters, dbscan
 
 
-def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None):
+def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None, threshold_value=0.3):
     # Using internal defaults due to not passing parameter_dict when calling Grid_search_all
     parameter_dict = Grid_search_all(X_reduced_features, 'DBSCAN') 
     
@@ -38,7 +38,7 @@ def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_
     
     # Identify Clustering results as normal/abnormal
     # clustering_nomal_identify function takes X, original_labels_aligned, cluster_labels, n_clusters as arguments.
-    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual, global_known_normal_samples_pca=global_known_normal_samples_pca)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
     num_clusters_after_cni = len(np.unique(final_cluster_labels_from_cni))
 
     return {

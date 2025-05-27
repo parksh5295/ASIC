@@ -29,7 +29,7 @@ class CANN(tf.keras.Model):
         return self.dense3(x)
     
 
-def clustering_CANNwKNN(data, X, aligned_original_labels):   # data, X is pansdas DataFrame, add aligned_original_labels
+def clustering_CANNwKNN(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=None):   # data, X is pansdas DataFrame, add aligned_original_labels
     # Define model input shapes
     input_shape = (X.shape[1])
 

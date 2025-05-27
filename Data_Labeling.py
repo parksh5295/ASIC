@@ -52,6 +52,9 @@ def main():
     total_start_time = time.time()  # Start All Time
     timing_info = {}  # For step-by-step time recording
 
+    # Define candidate threshold values for CNI
+    threshold_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # optimal_cni_threshold will be determined after processing all chunks
 
     # 0. Create Global Reference Normal Samples PCA (for CNI function)
     # This is done once based on the full dataset if possible.
@@ -291,7 +294,6 @@ def main():
     # Create original labels aligned with X_reduced
     # Assumption: Rows in 'data' DataFrame correspond to rows in 'X' (group_mapped_df),
     # and subsequently to rows in 'X_reduced' if X is a DataFrame OR if pca_func preserves row order from X (if X is NumPy).
-    # The logs show data.shape[0], X.shape[0], and X_reduced.shape[0] are all the same (2504267).
     
     if 'label' not in data.columns:
         raise ValueError("'label' column is missing from 'data' DataFrame. Ensure labeling step (Step 2) is correct.")
@@ -320,7 +322,7 @@ def main():
     original_labels_for_chunking = data['label'].to_numpy() # Ensure original labels are numpy array
 
     # 5. Clustering Algorithm Application (with Chunking)
-    print("\nStep 5: Clustering Algorithm Application...")
+    print("\nStep 5: Clustering with {clustering_algorithm}...")
     start = time.time()
 
     chunk_size = 5000
@@ -329,86 +331,182 @@ def main():
     print(f"Total samples: {num_samples}, Chunk size: {chunk_size}, Number of chunks: {num_chunks}")
 
     all_chunk_cluster_labels = []
-    all_chunk_best_params = [] # Store best_params from each chunk if needed, though may not be consistent
-    all_chunk_gmm_types = [] # Added to collect GMM_type from autotune path
+    all_chunk_best_params = []
+    all_chunk_gmm_types = []
 
+    # Store Jaccard scores for each threshold from each chunk
+    # Structure: {threshold_value: [jaccard_score_chunk1, jaccard_score_chunk2, ...]}
+    threshold_jaccard_scores_across_chunks = {thresh: [] for thresh in threshold_candidates}
+    # Store actual cluster labels for each chunk and each threshold, to be used after optimal threshold is found
+    # Structure: {(chunk_index, threshold_value): [cluster_labels_for_this_chunk_and_threshold]}
+    chunk_threshold_labels_temp_storage = {}
+
+    # --- Phase 1: Iterate through chunks and thresholds to collect Jaccard scores and temp labels ---
+    print("\nPhase 1: Collecting Jaccard scores and temporary labels for each chunk and threshold...")
     for i in range(num_chunks):
         start_chunk_time = time.time()
         start_idx = i * chunk_size
         end_idx = min((i + 1) * chunk_size, num_samples)
         
-        current_chunk_data = data_for_clustering[start_idx:end_idx]
-        current_chunk_original_labels = original_labels_for_chunking[start_idx:end_idx]
-        # The 'data' df passed to clustering functions might need to be chunked too if used internally beyond just labels.
-        # For now, focusing on essential data for CNI.
-        # current_data_df_chunk = data.iloc[start_idx:end_idx] 
+        current_chunk_data_np = data_for_clustering[start_idx:end_idx] # This is a numpy slice from data_for_clustering (which is already np array)
+        current_chunk_original_labels_np = original_labels_for_chunking[start_idx:end_idx] # This is also a numpy slice
 
-        print(f"Processing chunk {i+1}/{num_chunks}, samples {start_idx}-{end_idx-1}. Chunk shape: {current_chunk_data.shape}")
-
-        gmm_type_chunk_result = None # To store GMM type from either path
-        if autotune_enabled: # Use the new autotune_enabled flag
-            # Pass the current chunk data, its original labels, and the global PCA normals
-            clustering_result_dict, gmm_type_chunk_result = choose_clustering_algorithm(
-                data, # Original full data
-                current_chunk_data, 
-                current_chunk_original_labels, 
-                clustering_algorithm, 
-                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni
-            )
-        else: # Non-Autotune
-            clustering_result_dict, gmm_type_chunk_result = choose_clustering_algorithm_Non_optimization(
-                data, # Original full data
-                current_chunk_data, 
-                current_chunk_original_labels, 
-                clustering_algorithm, 
-                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni
-            )
+        print(f"  Processing Chunk {i+1}/{num_chunks} (Samples {start_idx}-{end_idx-1}), Shape: {current_chunk_data_np.shape}")
         
-        # Collect GMM type if it's a GMM algorithm, regardless of autotune, for consistent handling in Step 7
-        if clustering_algorithm.upper().startswith("GMM"):
-            all_chunk_gmm_types.append(gmm_type_chunk_result)
-        else:
-            all_chunk_gmm_types.append(None) # Append None for non-GMM algos to maintain list structure if needed elsewhere
+        for current_threshold_in_chunk_loop in threshold_candidates:
+            # print(f"    Chunk {i+1}, Testing CNI threshold: {current_threshold_in_chunk_loop}") # Verbose, can be enabled for debug
+            gmm_type_for_this_run = None 
+            
+            if autotune_enabled: 
+                temp_chunk_clustering_result, gmm_type_for_this_run = choose_clustering_algorithm(
+                    data, 
+                    current_chunk_data_np, 
+                    current_chunk_original_labels_np, 
+                    clustering_algorithm, 
+                    global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni,
+                    threshold_value=current_threshold_in_chunk_loop
+                )
+            else: 
+                temp_chunk_clustering_result = choose_clustering_algorithm_Non_optimization(
+                    data, 
+                    current_chunk_data_np, 
+                    current_chunk_original_labels_np, 
+                    clustering_algorithm, 
+                    global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni,
+                    threshold_value=current_threshold_in_chunk_loop
+                )
 
-        all_chunk_cluster_labels.append(clustering_result_dict['Cluster_labeling'])
-        all_chunk_best_params.append(clustering_result_dict.get('Best_parameter_dict')) # Store params
+            if 'Cluster_labeling' in temp_chunk_clustering_result and temp_chunk_clustering_result['Cluster_labeling'] is not None:
+                y_pred_chunk_current_thresh = temp_chunk_clustering_result['Cluster_labeling']
+                if y_pred_chunk_current_thresh.size == current_chunk_original_labels_np.size and y_pred_chunk_current_thresh.size > 0:
+                    chunk_threshold_labels_temp_storage[(i, current_threshold_in_chunk_loop)] = y_pred_chunk_current_thresh
+                    chunk_metrics = evaluate_clustering_wos(current_chunk_original_labels_np, y_pred_chunk_current_thresh)
+                    current_jaccard_micro_chunk = chunk_metrics.get('jaccard_micro', -1.0)
+                    # print(f"      Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}, Jaccard: {current_jaccard_micro_chunk:.4f}") # Verbose
+                    if current_jaccard_micro_chunk != -1.0: # Only store valid Jaccard scores
+                         threshold_jaccard_scores_across_chunks[current_threshold_in_chunk_loop].append(current_jaccard_micro_chunk)
+                # else: print(f"    Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}: Label size mismatch or empty. No Jaccard.")
+            # else: print(f"    Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}: 'Cluster_labeling' missing.")
         
         end_chunk_time = time.time()
-        print(f"Chunk {i+1} processed in {end_chunk_time - start_chunk_time:.2f}s. Labels predicted: {len(clustering_result_dict['Cluster_labeling'])}")
+        print(f"  Chunk {i+1} (threshold sweep) processed in {end_chunk_time - start_chunk_time:.2f}s.")
 
-    # Concatenate results from all chunks
-    if all_chunk_cluster_labels:
-        final_predict_results = np.concatenate(all_chunk_cluster_labels)
+    # --- Phase 2: Determine Optimal CNI Threshold (IQR Outlier Removal + Mean) ---
+    print("\nPhase 2: Determining Optimal CNI Threshold...")
+    optimal_cni_threshold = 0.3 # Default if all else fails or no scores
+    best_robust_average_jaccard = -1.0
+
+    for thresh_val, jaccard_list in threshold_jaccard_scores_across_chunks.items():
+        if not jaccard_list:
+            print(f"  Threshold {thresh_val}: No Jaccard scores recorded.")
+            continue
+
+        scores_np = np.array(jaccard_list)
+        q1 = np.percentile(scores_np, 25)
+        q3 = np.percentile(scores_np, 75)
+        iqr = q3 - q1
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+
+        # Filter out outliers
+        filtered_scores = scores_np[(scores_np >= lower_bound) & (scores_np <= upper_bound)]
+        
+        if filtered_scores.size > 0:
+            robust_average_jaccard = np.mean(filtered_scores)
+            print(f"  Threshold {thresh_val}: Robust Avg Jaccard (micro) = {robust_average_jaccard:.4f} (from {filtered_scores.size}/{scores_np.size} scores after outlier removal)")
+            if robust_average_jaccard > best_robust_average_jaccard:
+                best_robust_average_jaccard = robust_average_jaccard
+                optimal_cni_threshold = thresh_val
+        else:
+            # If all scores were outliers, fall back to mean of original scores for this threshold
+            # Or, could skip this threshold or assign a penalty. For now, use original mean.
+            original_mean = np.mean(scores_np)
+            print(f"  Threshold {thresh_val}: All scores considered outliers or no scores left. Original mean Jaccard = {original_mean:.4f} (from {scores_np.size} scores)")
+            # Consider if this threshold should still be a candidate if all were outliers
+            if original_mean > best_robust_average_jaccard: # Check against current best
+                 best_robust_average_jaccard = original_mean # Use original mean if it's better than any robust mean found so far
+                 optimal_cni_threshold = thresh_val
+                 print(f"    (Using original mean as it's currently the best overall: {original_mean:.4f}) ")
+
+    print(f"Optimal CNI Threshold selected: {optimal_cni_threshold} with best robust average Jaccard (micro): {best_robust_average_jaccard:.4f}")
+    timing_info['5.1_optimal_threshold_determination_time'] = time.time() - start # Assuming 'start' was from beginning of Step 5 (chunking)
+
+    # --- Phase 3: Re-process chunks with Optimal CNI Threshold to get final labels, params, and GMM types ---
+    print(f"\nPhase 3: Assembling final predictions by re-processing chunks with optimal_cni_threshold = {optimal_cni_threshold}...")
+    final_predict_results_list = []
+    # all_chunk_best_params and all_chunk_gmm_types are cleared and repopulated here.
+    all_chunk_best_params.clear()
+    all_chunk_gmm_types.clear()
+    start_phase3_time = time.time()
+
+    for i in range(num_chunks):
+        # print(f"  Re-processing Chunk {i+1}/{num_chunks} with optimal threshold {optimal_cni_threshold}...") # Verbose
+        start_idx = i * chunk_size
+        end_idx = min((i + 1) * chunk_size, num_samples)
+        current_chunk_data_np = data_for_clustering[start_idx:end_idx]
+        current_chunk_original_labels_np = original_labels_for_chunking[start_idx:end_idx]
+        
+        # Option 1: Re-run clustering for this chunk with the optimal_cni_threshold
+        final_gmm_type_for_chunk = None
+        final_params_for_chunk = {}
+        labels_for_this_chunk_optimal = None
+
+        if autotune_enabled:
+            final_chunk_clustering_result, final_gmm_type_for_chunk = choose_clustering_algorithm(
+                data, current_chunk_data_np, current_chunk_original_labels_np, clustering_algorithm,
+                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold)
+        else:
+            final_chunk_clustering_result = choose_clustering_algorithm_Non_optimization(
+                data, current_chunk_data_np, current_chunk_original_labels_np, clustering_algorithm,
+                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold)
+        
+        if 'Cluster_labeling' in final_chunk_clustering_result and final_chunk_clustering_result['Cluster_labeling'] is not None:
+            labels_for_this_chunk_optimal = final_chunk_clustering_result['Cluster_labeling']
+            final_params_for_chunk = final_chunk_clustering_result.get('Best_parameter_dict', {})
+        else:
+            print(f"    [ERROR] Chunk {i+1} re-processing with optimal threshold failed to produce labels. Using empty array for this chunk.")
+            labels_for_this_chunk_optimal = np.array([]) 
+        
+        # Option 2: Retrieve from chunk_threshold_labels_temp_storage (if we decide not to re-run for labels)
+        # labels_for_this_chunk_optimal = chunk_threshold_labels_temp_storage.get((i, optimal_cni_threshold))
+        # if labels_for_this_chunk_optimal is None:
+        # print(f"    [ERROR] Could not retrieve stored labels for chunk {i+1} and optimal threshold {optimal_cni_threshold}. This should not happen if Phase 1 was complete.")
+        # labels_for_this_chunk_optimal = np.array([]) # Fallback
+        # NOTE: If using Option 2 for labels, we still need a strategy for Best_parameter_dict and GMM type.
+        #       Re-running (Option 1) is cleaner for getting all associated info for the optimal run.
+
+        final_predict_results_list.append(labels_for_this_chunk_optimal)
+        all_chunk_best_params.append(final_params_for_chunk)
+        if clustering_algorithm.upper().startswith("GMM"):
+            all_chunk_gmm_types.append(final_gmm_type_for_chunk)
+        else:
+            all_chunk_gmm_types.append(None) 
+
+    if final_predict_results_list and not all(arr.size == 0 for arr in final_predict_results_list): # Check if not all are empty
+        # Filter out empty arrays before concatenation to avoid errors if some chunks failed
+        valid_results_to_concat = [arr for arr in final_predict_results_list if arr.size > 0]
+        if valid_results_to_concat:
+            final_predict_results = np.concatenate(valid_results_to_concat)
+            if len(final_predict_results) != num_samples:
+                 print(f"[WARNING Phase 3] Length of concatenated final labels ({len(final_predict_results)}) does not match total samples ({num_samples}) after potentially excluding failed chunks.")
+        else:
+            print("[ERROR Phase 3] All chunks failed to produce labels in Phase 3. final_predict_results will be empty.")
+            final_predict_results = np.array([])
     else:
-        final_predict_results = np.array([]) # Handle cases with no data or no chunks
+        print("[ERROR Phase 3] No valid prediction results to concatenate after Phase 3.")
+        final_predict_results = np.array([])
     
-    print(f"All chunks processed. Total predicted labels: {len(final_predict_results)}. Expected: {num_samples}")
-    if len(final_predict_results) != num_samples and num_samples > 0:
-        print(f"[WARNING] Length of concatenated labels ({len(final_predict_results)}) does not match number of samples ({num_samples}).")
-        # Fallback or error handling might be needed here.
-        # For now, if lengths mismatch significantly, it might be better to use an empty array or raise error.
-        # If it's a minor off-by-one due to slicing, it might be less critical but still needs investigation.
-        # For simplicity in this step, we proceed but this is a critical check.
+    timing_info['5.2_chunk_reprocessing_time'] = time.time() - start_phase3_time
+    print(f"Phase 3 finished. Chunk re-processing time: {timing_info['5.2_chunk_reprocessing_time']:.2f}s")
 
-    # Assign concatenated results back to the original dataframe for evaluation
-    # Ensure the index aligns if data was not a simple range index before chunking
-    if len(final_predict_results) == len(data):
-        data['cluster'] = final_predict_results
-        # --- ADDED: Call cluster_mapping after final_predict_results are assigned ---
-        cluster_mapping(data) # This will create data['adjusted_cluster']
-        print(f"[INFO] cluster_mapping applied. 'adjusted_cluster' column created.")
-        # --- END ADDED ---
-    else:
-        # If lengths don't match, avoid assigning to prevent errors. Store separately or handle.
-        print(f"[ERROR] Final predicted labels length {len(final_predict_results)} does not match original data length {len(data)}. Cannot assign to data['cluster'].")
-        # data['cluster'] will remain unassigned or have its old value.
-        # This will likely cause issues in evaluation steps. For robust solution, this needs careful handling.
-        # As a temporary measure for evaluation, we might need to use original_labels_for_chunking for y_true
-        # and final_predict_results (if length matches original_labels_for_chunking) for y_pred.
+    # timing_info['5_clustering_time'] should now encompass all phases of step 5
+    timing_info['5_clustering_time'] = (timing_info.get('5.1_optimal_threshold_determination_time',0) + 
+                                       timing_info.get('5.2_chunk_reprocessing_time',0) + 
+                                       (start_phase3_time - start)) # Add time from start of phase 1 to start of phase 3
 
-    timing_info['5_clustering_time'] = time.time() - start
-    print(f"Step 5 finished. Clustering Algorithm: {clustering_algorithm}. Time: {timing_info['5_clustering_time']:.2f}s")
-
+    # Concatenate results from all chunks (This line seems redundant now as final_predict_results is already populated)
+    # if all_chunk_cluster_labels: # all_chunk_cluster_labels is not the primary source of final labels anymore
+    #     final_predict_results = np.concatenate(all_chunk_cluster_labels) 
 
     # 6. Evaluation and Comparison (using concatenated results)
     start = time.time()

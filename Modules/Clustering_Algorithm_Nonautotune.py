@@ -17,7 +17,7 @@ from Clustering_Method.clustering_CANNwKNN import pre_clustering_CANNwKNN
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, original_labels_aligned, clustering_algorithm_choice, global_known_normal_samples_pca=None):
+def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, original_labels_aligned, clustering_algorithm_choice, global_known_normal_samples_pca=None, threshold_value=0.3):
     parameter_dict = {'random_state' : 42, 'n_init' : 30, 'max_clusters' : 1000, 'tol' : 1e-4, 'eps' : 0.5, 'count_samples' : 5,
                         'quantile' : 0.2, 'n_samples' : 500, 'n_start_nodes' : 2, 'max_nodes' : 50, 'step' : 0.2,
                         'max_edge_age' : 50, 'epochs' : 300, 'batch_size' : 256, 'n_neighbors' : 5, 'n_clusters' : 1000
@@ -113,7 +113,8 @@ def choose_clustering_algorithm_Non_optimization(data, X_reduced_features, origi
         original_labels_aligned, 
         model_labels, 
         n_clusters_actual, 
-        global_known_normal_samples_pca=global_known_normal_samples_pca
+        global_known_normal_samples_pca=global_known_normal_samples_pca,
+        threshold_value=threshold_value
     )
 
     # For Non-optimization, Best_parameter_dict is just the fixed parameter_dict.
