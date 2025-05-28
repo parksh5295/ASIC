@@ -396,9 +396,23 @@ def main():
                 if y_pred_chunk_current_thresh.size == current_chunk_original_labels_np.size and y_pred_chunk_current_thresh.size > 0:
                     chunk_threshold_labels_temp_storage[(i, current_threshold_in_chunk_loop)] = y_pred_chunk_current_thresh
                     chunk_metrics = evaluate_clustering_wos(current_chunk_original_labels_np, y_pred_chunk_current_thresh)
-                    current_jaccard_micro_chunk = chunk_metrics.get('jaccard_micro', -1.0)
-                    print(f"      INFO: Thresh {current_threshold_in_chunk_loop} - Calculated Jaccard (micro): {current_jaccard_micro_chunk}") # MODIFIED: More direct print
                     
+                    # --- Start Debug Print for chunk_metrics ---
+                    print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - Full chunk_metrics: {chunk_metrics}")
+                    # --- End Debug Print for chunk_metrics ---
+
+                    # Correct way to get micro jaccard score
+                    micro_metrics_dict = chunk_metrics.get('average=micro', {})
+                    current_jaccard_micro_chunk = micro_metrics_dict.get('jaccard', -1.0)
+
+                    print(f"      INFO: Thresh {current_threshold_in_chunk_loop} - Calculated Jaccard (micro): {current_jaccard_micro_chunk}")
+                    
+                    # --- Start Debug Print if jaccard is -1.0 AND no error message was seen from jaccard_basic ---
+                    if current_jaccard_micro_chunk == -1.0:
+                        # This print helps confirm if jaccard_basic itself returned -1.0 vs. key missing
+                        print(f"        DEBUG: Thresh {current_threshold_in_chunk_loop} - Jaccard is -1.0. Micro metrics dict was: {micro_metrics_dict}") 
+                    # --- End Debug Print ---
+
                     if current_jaccard_micro_chunk != -1.0: # Only store valid Jaccard scores
                          threshold_jaccard_scores_across_chunks[current_threshold_in_chunk_loop].append(current_jaccard_micro_chunk)
                          print(f"        DEBUG: Thresh {current_threshold_in_chunk_loop} - Stored Jaccard. Current list for this thresh: {threshold_jaccard_scores_across_chunks[current_threshold_in_chunk_loop]}")
