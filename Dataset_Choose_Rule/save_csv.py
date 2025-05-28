@@ -10,8 +10,10 @@ def ensure_directory_exists(directory):
         os.makedirs(directory)
 
 
-def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_type=None):
-    row_compare_df = data[['cluster', 'adjusted_cluster', 'label']]
+def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_type=None, optimal_cni_threshold=None):
+    row_compare_df = data[['cluster', 'adjusted_cluster', 'label']].copy() # Use .copy() to avoid SettingWithCopyWarning
+    if optimal_cni_threshold is not None:
+        row_compare_df['Optimal_CNI_Threshold'] = optimal_cni_threshold
     
     save_path = f"../Dataset_Paral/save_dataset/{file_type}/"
     ensure_directory_exists(save_path)  # Verify and create the folder
@@ -24,8 +26,17 @@ def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_
     
     return row_compare_df
 
-def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, metrics_original, metrics_adjusted, GMM_type):
-    metrics_df = pd.DataFrame([metrics_original, metrics_adjusted], index=["Original", "Adjusted"])
+def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, metrics_original, metrics_adjusted, GMM_type, optimal_cni_threshold=None):
+    # Ensure metrics_original and metrics_adjusted are dictionaries before creating DataFrame
+    # Create copies to modify them before DataFrame creation if needed
+    metrics_original_with_thresh = metrics_original.copy() if metrics_original else {}
+    metrics_adjusted_with_thresh = metrics_adjusted.copy() if metrics_adjusted else {}
+
+    if optimal_cni_threshold is not None:
+        metrics_original_with_thresh['Optimal_CNI_Threshold'] = optimal_cni_threshold
+        metrics_adjusted_with_thresh['Optimal_CNI_Threshold'] = optimal_cni_threshold
+
+    metrics_df = pd.DataFrame([metrics_original_with_thresh, metrics_adjusted_with_thresh], index=["Original", "Adjusted"])
     
     save_path = f"../Dataset_Paral/save_dataset/{file_type}/"
     ensure_directory_exists(save_path)  # Verify and create the folder

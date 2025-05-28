@@ -354,7 +354,7 @@ def main():
         print(f"  Processing Chunk {i+1}/{num_chunks} (Samples {start_idx}-{end_idx-1}), Shape: {current_chunk_data_np.shape}")
         
         for current_threshold_in_chunk_loop in threshold_candidates:
-            # print(f"    Chunk {i+1}, Testing CNI threshold: {current_threshold_in_chunk_loop}") # Verbose, can be enabled for debug
+            print(f"    Chunk {i+1}, Testing CNI threshold: {current_threshold_in_chunk_loop}") # MODIFIED: More direct print
             gmm_type_for_this_run = None 
             
             if autotune_enabled: 
@@ -375,18 +375,39 @@ def main():
                     global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni,
                     threshold_value=current_threshold_in_chunk_loop
                 )
+            
+            # --- Start Debug Prints ---
+            print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - temp_chunk_clustering_result type: {type(temp_chunk_clustering_result)}")
+            if isinstance(temp_chunk_clustering_result, dict):
+                print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - keys: {temp_chunk_clustering_result.keys()}")
+            else:
+                print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - result is not a dict.")
+            # --- End Debug Prints ---
 
-            if 'Cluster_labeling' in temp_chunk_clustering_result and temp_chunk_clustering_result['Cluster_labeling'] is not None:
+            if isinstance(temp_chunk_clustering_result, dict) and 'Cluster_labeling' in temp_chunk_clustering_result and temp_chunk_clustering_result['Cluster_labeling'] is not None:
                 y_pred_chunk_current_thresh = temp_chunk_clustering_result['Cluster_labeling']
+                # --- Start Debug Prints ---
+                print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - y_pred_chunk_current_thresh shape: {y_pred_chunk_current_thresh.shape}, dtype: {y_pred_chunk_current_thresh.dtype}")
+                print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - current_chunk_original_labels_np shape: {current_chunk_original_labels_np.shape}, dtype: {current_chunk_original_labels_np.dtype}")
+                if y_pred_chunk_current_thresh.size > 0 : print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - y_pred unique values: {np.unique(y_pred_chunk_current_thresh, return_counts=True)}")
+                if current_chunk_original_labels_np.size > 0 : print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - original_labels unique values: {np.unique(current_chunk_original_labels_np, return_counts=True)}")
+                # --- End Debug Prints ---
+
                 if y_pred_chunk_current_thresh.size == current_chunk_original_labels_np.size and y_pred_chunk_current_thresh.size > 0:
                     chunk_threshold_labels_temp_storage[(i, current_threshold_in_chunk_loop)] = y_pred_chunk_current_thresh
                     chunk_metrics = evaluate_clustering_wos(current_chunk_original_labels_np, y_pred_chunk_current_thresh)
                     current_jaccard_micro_chunk = chunk_metrics.get('jaccard_micro', -1.0)
-                    # print(f"      Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}, Jaccard: {current_jaccard_micro_chunk:.4f}") # Verbose
+                    print(f"      INFO: Thresh {current_threshold_in_chunk_loop} - Calculated Jaccard (micro): {current_jaccard_micro_chunk}") # MODIFIED: More direct print
+                    
                     if current_jaccard_micro_chunk != -1.0: # Only store valid Jaccard scores
                          threshold_jaccard_scores_across_chunks[current_threshold_in_chunk_loop].append(current_jaccard_micro_chunk)
-                # else: print(f"    Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}: Label size mismatch or empty. No Jaccard.")
-            # else: print(f"    Chunk {i+1}, Thresh {current_threshold_in_chunk_loop}: 'Cluster_labeling' missing.")
+                         print(f"        DEBUG: Thresh {current_threshold_in_chunk_loop} - Stored Jaccard. Current list for this thresh: {threshold_jaccard_scores_across_chunks[current_threshold_in_chunk_loop]}")
+                    else:
+                        print(f"        DEBUG: Thresh {current_threshold_in_chunk_loop} - Jaccard score is -1.0, not storing.")
+                else: 
+                    print(f"      WARN: Thresh {current_threshold_in_chunk_loop} - Label size mismatch or empty labels. y_pred size: {y_pred_chunk_current_thresh.size}, original_labels size: {current_chunk_original_labels_np.size}. No Jaccard calculated or stored for this run.")
+            else: 
+                print(f"      WARN: Thresh {current_threshold_in_chunk_loop} - 'Cluster_labeling' missing, None, or result not a dict. Result was: {temp_chunk_clustering_result}")
         
         end_chunk_time = time.time()
         print(f"  Chunk {i+1} (threshold sweep) processed in {end_chunk_time - start_chunk_time:.2f}s.")
@@ -430,6 +451,7 @@ def main():
 
     print(f"Optimal CNI Threshold selected: {optimal_cni_threshold} with best robust average Jaccard (micro): {best_robust_average_jaccard:.4f}")
     timing_info['5.1_optimal_threshold_determination_time'] = time.time() - start # Assuming 'start' was from beginning of Step 5 (chunking)
+    timing_info['optimal_cni_threshold'] = optimal_cni_threshold # Store the selected threshold
 
     # --- Phase 3: Re-process chunks with Optimal CNI Threshold to get final labels, params, and GMM types ---
     print(f"\nPhase 3: Assembling final predictions by re-processing chunks with optimal_cni_threshold = {optimal_cni_threshold}...")
@@ -610,7 +632,8 @@ def main():
             clustering_algorithm, # clusterint_method
             file_number, # file_number
             data, # data (DataFrame containing 'cluster', 'adjusted_cluster', 'label')
-            GMM_type=determined_gmm_type # GMM_type
+            GMM_type=determined_gmm_type, # GMM_type
+            optimal_cni_threshold=optimal_cni_threshold # Pass the determined optimal threshold
         )
         
         # For csv_compare_matrix_clustering, arguments were simplified too.
@@ -627,7 +650,8 @@ def main():
             clustering_algorithm, # clusterint_method
             metrics_original, # metrics_original
             metrics_adjusted, # metrics_adjusted
-            GMM_type=determined_gmm_type # GMM_type
+            GMM_type=determined_gmm_type, # GMM_type
+            optimal_cni_threshold=optimal_cni_threshold # Pass the determined optimal threshold
         )
     else:
         print("[WARN Save] 'cluster' column not available or length mismatch with y_true. Skipping CSV result comparison saving.")
