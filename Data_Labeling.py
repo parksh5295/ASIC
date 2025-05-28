@@ -246,7 +246,7 @@ def main():
         # base_output_dir can be specified if different from "results"
     )
     # Optionally, you can store saved_scaler_path if needed later, though it's printed by the function.
-    
+
 
     # 4. Numpy(hstack) processing and PCA
     print("\nStep 4: PCA for main data processing...")
@@ -380,7 +380,7 @@ def main():
             print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - temp_chunk_clustering_result type: {type(temp_chunk_clustering_result)}")
             if isinstance(temp_chunk_clustering_result, dict):
                 print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - keys: {temp_chunk_clustering_result.keys()}")
-            else:
+    else:
                 print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - result is not a dict.")
             # --- End Debug Prints ---
 
@@ -438,7 +438,7 @@ def main():
             if robust_average_jaccard > best_robust_average_jaccard:
                 best_robust_average_jaccard = robust_average_jaccard
                 optimal_cni_threshold = thresh_val
-        else:
+    else:
             # If all scores were outliers, fall back to mean of original scores for this threshold
             # Or, could skip this threshold or assign a penalty. For now, use original mean.
             original_mean = np.mean(scores_np)
@@ -595,7 +595,7 @@ def main():
 
     # 7. Save results
     start = time.time()
-    
+
     determined_gmm_type = None 
     if clustering_algorithm.upper().startswith("GMM"): # "GMM", "GMM_full", "SGMM" 등
         parts = clustering_algorithm.split('_')

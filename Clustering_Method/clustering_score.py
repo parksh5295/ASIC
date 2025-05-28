@@ -23,8 +23,19 @@ def f1_basic(t, p, average):
     return metric
 
 def jaccard_basic(t, p, average):
-    metric = jaccard_score(t, p, average=average, zero_division=0)
-    return metric
+    try:
+        # print(f"  [jaccard_basic DEBUG] y_true (shape {t.shape}, uniques {np.unique(t, return_counts=True)}), y_pred (shape {p.shape}, uniques {np.unique(p, return_counts=True)}), average: {average}") # Detailed print
+        metric = jaccard_score(t, p, average=average, zero_division=0)
+        # print(f"  [jaccard_basic DEBUG] Score: {metric}")
+        return metric
+    except ValueError as ve:
+        print(f"  [jaccard_basic ERROR] ValueError calculating Jaccard score (average={average}): {ve}")
+        print(f"    y_true first 10: {t[:10]}, y_pred first 10: {p[:10]}")
+        return -1.0 # Return a distinct error indicator
+    except Exception as e:
+        print(f"  [jaccard_basic ERROR] Unexpected error calculating Jaccard score (average={average}): {e}")
+        print(f"    y_true first 10: {t[:10]}, y_pred first 10: {p[:10]}")
+        return -1.0 # Return a distinct error indicator
 
 def silhouette_basic(x_data, p):
     metric = silhouette_score(x_data, p) if len(set(p)) > 1 else np.nan
