@@ -53,7 +53,7 @@ def main():
     timing_info = {}  # For step-by-step time recording
 
     # Define candidate threshold values for CNI
-    threshold_candidates = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # Adjusted to start from 0.3
+    threshold_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # Restored to include 0.1 and 0.2
     # optimal_cni_threshold will be determined after processing all chunks
 
     # 0. Create Global Reference Normal Samples PCA (for CNI function)
