@@ -380,7 +380,7 @@ def main():
             print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - temp_chunk_clustering_result type: {type(temp_chunk_clustering_result)}")
             if isinstance(temp_chunk_clustering_result, dict):
                 print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - keys: {temp_chunk_clustering_result.keys()}")
-    else:
+            else:
                 print(f"      DEBUG: Thresh {current_threshold_in_chunk_loop} - result is not a dict.")
             # --- End Debug Prints ---
 
