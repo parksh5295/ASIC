@@ -23,6 +23,7 @@ def csv_compare_clustering(file_type, clusterint_method, file_number, data, GMM_
     else:
         file_path = f"{save_path}{file_type}_{clusterint_method}_{file_number}_clustering_Compare.csv"
     row_compare_df.to_csv(file_path, index=False)
+    print(f"[INFO SaveCSV] Clustering comparison data saved to: {os.path.abspath(file_path)}")
     
     return row_compare_df
 
@@ -46,6 +47,7 @@ def csv_compare_matrix_clustering(file_type, file_number, clusterint_method, met
     else:
         file_path = f"{save_path}{file_type}_{clusterint_method}_{file_number}_clustering_Compare_Metrics.csv"
     metrics_df.to_csv(file_path, index=True)
+    print(f"[INFO SaveCSV] Clustering metrics data saved to: {os.path.abspath(file_path)}")
     
     return metrics_df
 

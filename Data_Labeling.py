@@ -542,7 +542,19 @@ def main():
 
     # Concatenate results from all chunks (This line seems redundant now as final_predict_results is already populated)
     # if all_chunk_cluster_labels: # all_chunk_cluster_labels is not the primary source of final labels anymore
-    #     final_predict_results = np.concatenate(all_chunk_cluster_labels) 
+    #     final_predict_results = np.concatenate(all_chunk_cluster_labels)
+    # Assign final_predict_results to data['cluster'] for evaluation and saving
+    if len(final_predict_results) == len(data):
+        data['cluster'] = final_predict_results
+        print(f"[INFO] Successfully assigned final_predict_results to data['cluster']. Unique values: {np.unique(data['cluster'], return_counts=True)}")
+    else:
+        print(f"[WARN] Length mismatch: final_predict_results ({len(final_predict_results)}) and data ({len(data)}). Not assigning to data['cluster']. This may affect evaluation and saving.")
+        # If final_predict_results is empty and data['cluster'] doesn't exist, create a dummy one to avoid KeyError later
+        # but this means results are based on potentially meaningless data.
+        if 'cluster' not in data.columns and len(data) > 0:
+            print("[WARN] data['cluster'] does not exist. Creating a dummy 'cluster' column with all zeros.")
+            data['cluster'] = np.zeros(len(data), dtype=int) # Or handle as error
+
 
     # 6. Evaluation and Comparison (using concatenated results)
     start = time.time()
@@ -560,22 +572,28 @@ def main():
     metrics_adjusted = {}
 
     if 'cluster' in data.columns and len(data['cluster']) == len(y_true):
-        y_pred_original = data['cluster'].to_numpy()
-        if eval_clustering_silhouette_flag:
-            metrics_original = evaluate_clustering(y_true, y_pred_original, X_data_for_eval)
+        y_pred_original = data['cluster'].to_numpy() # This will now use the final_predict_results if assigned
+        if y_pred_original.size == y_true.size and y_pred_original.size > 0: # Added safety check
+            if eval_clustering_silhouette_flag:
+                metrics_original = evaluate_clustering(y_true, y_pred_original, X_data_for_eval)
+            else:
+                metrics_original = evaluate_clustering_wos(y_true, y_pred_original)
+            print("Clustering Scores (Original - using data['cluster'] from final_predict_results): ", metrics_original)
         else:
-            metrics_original = evaluate_clustering_wos(y_true, y_pred_original)
-        print("Clustering Scores (Original - using 'cluster' column): ", metrics_original)
+            print(f"[WARN Eval] Size mismatch or empty arrays for original metrics. y_pred_original size: {y_pred_original.size}, y_true size: {y_true.size}")
     else:
         print("[WARN Eval] 'cluster' column not available or length mismatch. Skipping original metrics calculation.")
 
     if 'adjusted_cluster' in data.columns and len(data['adjusted_cluster']) == len(y_true):
         y_pred_adjusted = data['adjusted_cluster'].to_numpy()
-        if eval_clustering_silhouette_flag:
-            metrics_adjusted = evaluate_clustering(y_true, y_pred_adjusted, X_data_for_eval)
+        if y_pred_adjusted.size == y_true.size and y_pred_adjusted.size > 0: # Added safety check
+            if eval_clustering_silhouette_flag:
+                metrics_adjusted = evaluate_clustering(y_true, y_pred_adjusted, X_data_for_eval)
+            else:
+                metrics_adjusted = evaluate_clustering_wos(y_true, y_pred_adjusted)
+            print("Clustering Scores (Adjusted - using 'adjusted_cluster' column): ", metrics_adjusted)
         else:
-            metrics_adjusted = evaluate_clustering_wos(y_true, y_pred_adjusted)
-        print("Clustering Scores (Adjusted - using 'adjusted_cluster' column): ", metrics_adjusted)
+            print(f"[WARN Eval] Size mismatch or empty arrays for adjusted metrics. y_pred_adjusted size: {y_pred_adjusted.size}, y_true size: {y_true.size}")
     else:
         print("[WARN Eval] 'adjusted_cluster' column not available or length mismatch. Skipping adjusted metrics calculation.")
 
