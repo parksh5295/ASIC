@@ -555,6 +555,43 @@ def main():
             print("[WARN] data['cluster'] does not exist. Creating a dummy 'cluster' column with all zeros.")
             data['cluster'] = np.zeros(len(data), dtype=int) # Or handle as error
 
+    # REVISED PATCH: Populate 'adjusted_cluster' by inverting data['cluster'] (0->1, 1->0).
+    # This assumes data['cluster'] correctly holds the final 0/1 CNI-adjusted labels.
+    if 'cluster' in data.columns:
+        # 'cluster' column exists. We will define/overwrite 'adjusted_cluster'.
+        print(f"[INFO REVISED PATCH DL] 'cluster' column found. Populating 'adjusted_cluster' by inverting 'data['cluster']' (0->1, 1->0).")
+        # Check if Series and has non-NaN before showing unique values
+        if hasattr(data['cluster'], 'notna') and data['cluster'].notna().any(): # Check if Series and has non-NaN
+            print(f"                 Input unique values in data['cluster'] (non-NaN): {pd.unique(data['cluster'][data['cluster'].notna()])}")
+        elif not hasattr(data['cluster'], 'notna'): # Handle if data['cluster'] is ndarray from np.zeros
+             print(f"                 Input unique values in data['cluster'] (ndarray): {np.unique(data['cluster'])}")
+        else:
+            print(f"                 Input data['cluster'] is all NaN or empty.")
+        
+        # Convert 0 to 1, 1 to 0. NaN values remain NaN.
+        # Try converting data['cluster'] to Series first if it's a NumPy array
+        if not isinstance(data['cluster'], pd.Series):
+            current_cluster_series = pd.Series(data['cluster'], index=data.index if hasattr(data, 'index') else None)
+        else:
+            current_cluster_series = data['cluster']
+        
+        data['adjusted_cluster'] = 1 - current_cluster_series 
+        
+        if hasattr(data['adjusted_cluster'], 'notna') and data['adjusted_cluster'].notna().any():
+            print(f"                 Output unique values in data['adjusted_cluster'] (non-NaN): {pd.unique(data['adjusted_cluster'][data['adjusted_cluster'].notna()])}")
+        elif not hasattr(data['adjusted_cluster'], 'notna'):
+             print(f"                 Output unique values in data['adjusted_cluster'] (ndarray): {np.unique(data['adjusted_cluster'])}")
+        else:
+            print(f"                 Output data['adjusted_cluster'] is all NaN or empty.")
+
+    elif len(data) > 0 : # 'cluster' column does NOT exist, but data exists.
+        print("[WARN REVISED PATCH DL] 'cluster' column is missing. Creating dummy 'cluster' (all zeros) and 'adjusted_cluster' (all ones).")
+        # Ensure data['cluster'] is a Series with DataFrame index
+        data['cluster'] = pd.Series(np.zeros(len(data), dtype=int), index=data.index if hasattr(data, 'index') else None)
+        # If data['cluster'] is 0, 'adjusted_cluster' will be 1
+        data['adjusted_cluster'] = pd.Series(np.ones(len(data), dtype=int), index=data.index if hasattr(data, 'index') else None)
+    # If len(data) == 0, no action needed.
+
 
     # 6. Evaluation and Comparison (using concatenated results)
     start = time.time()
