@@ -24,7 +24,7 @@ from Dataset_Choose_Rule.time_save import time_save_csv_CS
 
 # Helper function for parallel processing
 def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit):
-    \"\"\"Processes a single iteration of the confidence loop.\"\"\"
+    """Processes a single iteration of the confidence loop."""
     print(f"Processing for min_confidence: {min_confidence}")
     association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
     association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
