@@ -5,6 +5,7 @@ import numpy as np
 import time
 import multiprocessing # Added for parallel processing
 import functools # Added for functools.partial if needed, though starmap is used here
+import os
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
@@ -123,6 +124,15 @@ def main():
     group_mapped_df, mapped_info_df = map_intervals_to_groups(embedded_dataframe, category_mapping, data_list, regul)
     print("mapped group: ", group_mapped_df)
     print("mapped_info: ", mapped_info_df)
+
+    # Save mapped_info_df for Validate_Signature.py
+    # Ensure the directory exists
+    mapped_info_save_path_dir = f"../Dataset_Paral/signature/{file_type}/"
+    if not os.path.exists(mapped_info_save_path_dir):
+        os.makedirs(mapped_info_save_path_dir)
+    mapped_info_save_path = f"{mapped_info_save_path_dir}{file_type}_{file_number}_mapped_info.csv"
+    mapped_info_df.to_csv(mapped_info_save_path, index=False)
+    print(f"Saved mapped_info_df to: {mapped_info_save_path}")
 
     group_mapped_df['label'] = data['label']
 
@@ -272,11 +282,6 @@ def main():
 
     # Save time information as a CSV
     time_save_csv_CS(file_type, file_number, Association_mathod, timing_info, best_confidence, min_support) # Added best_confidence and min_support for context in timing
-
-
-    # mapped_info_file save
-    mapped_info_file_path = f"../Dataset_Paral/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv"
-    mapped_info_df.to_csv(mapped_info_file_path, index=False)
 
 
     return association_result

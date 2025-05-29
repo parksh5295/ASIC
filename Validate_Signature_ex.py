@@ -409,8 +409,12 @@ def main():
     start = time.time()
 
 
-    mapped_info_path = f"../Dataset/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv"
-    association_result_path = f"../Dataset/signature/{file_type}/{file_type}_{Association_mathod}_{file_number}_{association_metric}_signature_train_ea{signature_ea}.csv"
+    # Corrected paths to load from Dataset_Paral
+    base_path = f"../Dataset_Paral/signature/{file_type}/"
+    # ensure_directory_exists(base_path) # Not strictly needed for loading, but good if any temp writes happen
+
+    mapped_info_path = f"{base_path}{file_type}_{file_number}_mapped_info.csv"
+    association_result_path = f"{base_path}{file_type}_{Association_mathod}_{file_number}_{association_metric}_signature_train_ea{signature_ea}.csv"
     
     # Load data in an optimized way
     mapped_info_df = load_csv_safely(file_type, mapped_info_path)
@@ -813,15 +817,11 @@ def main():
 
     # --- Save all results to CSV ---
     print("\n--- Saving Validation Results ---")
-    ensure_directory_exists(f"../Dataset/validation/{file_type}/") # Ensure save directory exists
-    
-    # Append '_experiment' to the association rule name for unique filenames
-    experimental_association_rule_name = f"{Association_mathod}_experiment"
-    
+    ensure_directory_exists(f"../Dataset_Paral/validation/{file_type}/") # Corrected path
     save_validation_results(
         file_type=file_type,
         file_number=file_number,
-        association_rule=experimental_association_rule_name, # Use modified name
+        association_rule=Association_mathod,
         basic_eval=signature_result, # Original evaluation results
         fp_results=fp_summary_enhanced, # FP summary (includes fake ones if generated)
         overfit_results=overfit_results,
@@ -833,8 +833,8 @@ def main():
     # --- Save Timing Information ---
     # Also modify timing filename to distinguish experiment runs
     timing_info['total_execution_time'] = time.time() - total_start_time
-    ensure_directory_exists(f"../Dataset/Time_Record/validation/{file_type}/") # Ensure save directory exists
-    time_save_csv_VS(file_type, file_number, experimental_association_rule_name, timing_info) # Use modified name for timing file too
+    ensure_directory_exists(f"../Dataset_Paral/time_log/validation_signature/{file_type}/") # Corrected path
+    time_save_csv_VS(file_type, file_number, Association_mathod, timing_info)
 
 
 if __name__ == "__main__":

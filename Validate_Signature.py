@@ -198,8 +198,15 @@ def main():
     start = time.time()
 
 
-    mapped_info_path = f"../Dataset/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv"
-    association_result_path = f"../Dataset/signature/{file_type}/{file_type}_{Association_mathod}_{file_number}_{association_metric}_signature_train_ea{signature_ea}.csv"
+    # Corrected paths to load from Dataset_Paral
+    # Ensure Main_Association_Rule.py saves mapped_info_df to a known location, 
+    # or that this mapped_info_path correctly points to how it's saved.
+    base_path = f"../Dataset_Paral/signature/{file_type}/"
+    ensure_directory_exists(base_path) # Ensure base directory exists for loading if somehow used for writing temp files by called functions
+
+    # Path for mapped_info.csv - ASSUMING Main_Association_Rule.py saves it here or it's generated elsewhere
+    mapped_info_path = f"{base_path}{file_type}_{file_number}_mapped_info.csv" 
+    association_result_path = f"{base_path}{file_type}_{Association_mathod}_{file_number}_{association_metric}_signature_train_ea{signature_ea}.csv"
     
     # Load data in an optimized way
     mapped_info_df = load_csv_safely(file_type, mapped_info_path)
@@ -511,7 +518,7 @@ def main():
 
     # --- Save all results to CSV ---
     print("\n--- Saving Validation Results ---")
-    ensure_directory_exists(f"../Dataset/validation/{file_type}/") # Ensure save directory exists
+    ensure_directory_exists(f"../Dataset_Paral/validation/{file_type}/") # Corrected path to Dataset_Paral, and folder to 'validation'
     save_validation_results(
         file_type=file_type,
         file_number=file_number,
@@ -526,7 +533,7 @@ def main():
 
     # --- Save Timing Information ---
     timing_info['total_execution_time'] = time.time() - total_start_time
-    ensure_directory_exists(f"../Dataset/Time_Record/validation/{file_type}/") # Ensure save directory exists
+    ensure_directory_exists(f"../Dataset_Paral/time_log/validation_signature/{file_type}/") # Corrected path to Dataset_Paral and folder to 'time_log/validation_signature'
     time_save_csv_VS(file_type, file_number, Association_mathod, timing_info)
 
 
