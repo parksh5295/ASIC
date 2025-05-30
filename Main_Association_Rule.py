@@ -221,25 +221,18 @@ def main():
     # Limit by the number of tasks or CPU cores, whichever is smaller.
     num_confidence_tasks = len(confidence_values)
     available_cores = multiprocessing.cpu_count()
-    main_pool_procs = min(num_confidence_tasks, available_cores) if num_confidence_tasks > 0 else 1
+
+    # Force sequential processing for confidence values to prioritize internal algorithm parallelism
+    main_pool_procs = 1
+    print(f"Set main_pool_procs to 1 to prioritize internal algorithm parallelism.")
+    
+    # Internal algorithms will use all available cores
+    algo_internal_procs = available_cores 
     
     print(f"Number of confidence values (tasks): {num_confidence_tasks}")
     print(f"Available CPU cores: {available_cores}")
-    print(f"Using {main_pool_procs} processes for parallel confidence iterations (main_pool_procs).")
-
-    # Determine num_processes for internal algorithm parallelization (algo_internal_procs)
-    if main_pool_procs == 0: # Should not happen if tasks exist and main_pool_procs is set above
-        effective_main_pool_procs = 1 # Ensure at least 1 to avoid division by zero
-    else:
-        effective_main_pool_procs = main_pool_procs
-        
-    if effective_main_pool_procs == 1: # If confidence loop is effectively sequential
-        algo_internal_procs = available_cores # Internal algo can use all cores
-    else:
-        # Distribute cores among the main pool tasks for their internal parallelization
-        algo_internal_procs = max(1, available_cores // effective_main_pool_procs)
-    
-    print(f"Calculated algo_internal_procs (for each association algorithm): {algo_internal_procs}")
+    print(f"Main pool will run sequentially (main_pool_procs = {main_pool_procs}).")
+    print(f"Internal algorithms will use {algo_internal_procs} processes (algo_internal_procs).")
 
     # Prepare arguments for the worker function (process_confidence_iteration)
     static_args = (
