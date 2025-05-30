@@ -36,9 +36,9 @@ def time_save_csv_VL(file_type, file_number, clustering_algorithm, timing_info):
     return
 
 
-def time_save_csv_CS(file_type, file_number, Association_mathod, timing_info):
+def time_save_csv_CS(file_type, file_number, Association_mathod, timing_info, best_confidence=None, min_support=None):
     """
-    Save timing information for each step and the total execution time to a CSV file.
+    Save timing information for each step, total execution time, best_confidence, and min_support to a CSV file.
     """
 
     save_dir = f"../Dataset_Paral/time_log/condition_assocation/{file_type}"
@@ -57,6 +57,12 @@ def time_save_csv_CS(file_type, file_number, Association_mathod, timing_info):
         writer.writerow(['Step', 'Time_Seconds'])
         for step, duration in timing_info.items():
             writer.writerow([step, round(duration, 4)])
+        
+        # Add best_confidence and min_support if available
+        if best_confidence is not None:
+            writer.writerow(['Best_Confidence', best_confidence])
+        if min_support is not None:
+            writer.writerow(['Min_Support', min_support])
 
     print(f"\n Timing log saved to: {filepath}")
 
