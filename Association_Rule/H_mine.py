@@ -42,6 +42,29 @@ class HStructure:
         common_tids = set.intersection(*[self.item_tids[item] for item in items])
         return len(common_tids) / self.transaction_count if self.transaction_count > 0 else 0
 
+# Helper function for parallel rule generation for H-Mine
+def generate_hmine_rules_for_itemset_task(f_itemset, min_conf, h_struct_get_support_func):
+    found_strong_rule = False
+    if len(f_itemset) > 1:
+        support_f_itemset = h_struct_get_support_func(f_itemset)
+        if support_f_itemset == 0:
+            return None
+
+        for i in range(1, len(f_itemset)):
+            for antecedent_tuple in combinations(f_itemset, i):
+                antecedent = frozenset(antecedent_tuple)
+                support_antecedent = h_struct_get_support_func(antecedent)
+                confidence = 0
+                if support_antecedent > 0:
+                    confidence = support_f_itemset / support_antecedent
+                
+                if confidence >= min_conf:
+                    found_strong_rule = True
+                    break
+            if found_strong_rule:
+                break
+    
+    return f_itemset if found_strong_rule else None
 
 def h_mine(df, min_support=0.5, min_confidence=0.8, num_processes=None):
     if num_processes is None:
@@ -147,65 +170,31 @@ def h_mine(df, min_support=0.5, min_confidence=0.8, num_processes=None):
 
         print(f"    [Debug H-Mine Loop-{level_count}] Found {len(actual_next_level_itemsets)} frequent itemsets for the next level.")
 
-        # Rule generation: Iterate through current_level_itemsets (which are k-itemsets)
-        # This was the original placement. If rules should be from newly found (k+1) itemsets (actual_next_level_itemsets),
-        # then this loop should iterate over actual_next_level_itemsets.
-        # Assuming rules are generated from the itemsets that were frequent in the *previous* full pass (current_level_itemsets).
-        # Or, more typically, rules are generated from *all* frequent itemsets found up to level k or k+1.
-        # The original code generated rules from `itemset` in `current_level_itemsets` before finding `next_level_candidates`.
-        # For consistency with Apriori, let's assume rules are generated from the `actual_next_level_itemsets` if they are found.
-        # Or from `current_level_itemsets` if that's the H-Mine paper's implication (itemset itself is the rule if frequent).
+        # Rule generation from current_level_itemsets - NOW PARALLELIZED
+        if current_level_itemsets: # Process rules if current_level is not empty
+            print(f"    [Debug H-Mine Loop-{level_count}] Generating rules from {len(current_level_itemsets)} (k={current_itemset_size}) frequent itemsets using {num_processes} processes...")
+            rule_gen_tasks_hmine = [
+                (item_set, min_confidence, h_struct.get_support) 
+                for item_set in current_level_itemsets # Rules from current level's frequent itemsets
+            ]
+            if rule_gen_tasks_hmine:
+                with multiprocessing.Pool(processes=num_processes) as pool:
+                    results_validated_fitemsets_for_hmine_rules = pool.starmap(generate_hmine_rules_for_itemset_task, rule_gen_tasks_hmine)
+                
+                for f_itemset_with_strong_rule in results_validated_fitemsets_for_hmine_rules:
+                    if f_itemset_with_strong_rule:
+                        rule_dict = {}
+                        for rule_item_str in f_itemset_with_strong_rule:
+                            key, value = rule_item_str.split('=', 1)
+                            try:
+                                val_float = float(value)
+                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                            except ValueError:
+                                rule_dict[key] = value
+                        rule_tuple = tuple(sorted(rule_dict.items()))
+                        rule_set.add(rule_tuple)
+            print(f"    [Debug H-Mine Loop-{level_count}] Rule set size after level {level_count} rule generation: {len(rule_set)}")
 
-        # The original code generated rules from current_level_itemsets. Let's stick to that for now.
-        # This rule generation can be parallelized by chunking current_level_itemsets.
-        # For now, keeping this part sequential after parallel candidate finding.
-        print(f"    [Debug H-Mine Loop-{level_count}] Generating rules from {len(current_level_itemsets)} (k={current_itemset_size}) frequent itemsets...")
-        for itemset_idx, itemset_for_rules in enumerate(current_level_itemsets): # These are k-itemsets
-            if itemset_idx > 0 and itemset_idx % 500 == 0: 
-                print(f"      [Debug H-Mine RuleGen-{level_count}] Processing itemset {itemset_idx}/{len(current_level_itemsets)} for rules: {itemset_for_rules}")
-            
-            if len(itemset_for_rules) > 1:
-                for i in range(1, len(itemset_for_rules)):
-                    for antecedent_tuple in combinations(itemset_for_rules, i):
-                        antecedent = frozenset(antecedent_tuple)
-                        
-                        ant_support = h_struct.get_support(antecedent)
-                        if ant_support > 0:
-                            itemset_support = h_struct.get_support(itemset_for_rules) 
-                            confidence = itemset_support / ant_support
-                            
-                            if confidence >= min_confidence:
-                                rule_dict = {}
-                                # H-Mine paper implies rule is the itemset itself if it's frequent
-                                # and rules derived from it pass confidence. The output dict is the itemset.
-                                for rule_item_str in itemset_for_rules: 
-                                    key, value = rule_item_str.split('=', 1)
-                                    try:
-                                        val_float = float(value)
-                                        rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
-                                    except ValueError:
-                                        rule_dict[key] = value
-                                rule_tuple = tuple(sorted(rule_dict.items()))
-                                rule_set.add(rule_tuple)
-        print(f"    [Debug H-Mine Loop-{level_count}] Rule set size after level {level_count}: {len(rule_set)}")
-
-        # Original candidate generation was inside the loop over current_level_itemsets.
-        # Moved candidate generation for the whole level first, then parallel support count.
-        # Original loop for candidate generation (for reference):
-        # for other_itemset_idx, other_itemset in enumerate(current_level_itemsets):
-        #     if itemset_idx < other_itemset_idx: 
-        #         if len(itemset.intersection(other_itemset)) == current_itemset_size -1: 
-        #             new_candidate_itemset = itemset.union(other_itemset)
-        #             if len(new_candidate_itemset) == current_itemset_size + 1:
-        #                 all_subsets_frequent = True
-        #                 if current_itemset_size > 0 : 
-        #                     for subset_to_check_tuple in combinations(new_candidate_itemset, current_itemset_size):
-        #                         if frozenset(subset_to_check_tuple) not in current_level_itemsets: # Needs current_level_itemsets to be a set for fast lookup
-        #                             all_subsets_frequent = False
-        #                             break
-        #                 if all_subsets_frequent and h_struct.get_support(new_candidate_itemset) >= min_support:
-        #                     next_level_candidates.add(frozenset(new_candidate_itemset)) # Original was next_level_candidates
-        
         # Update current_level_itemsets for the next iteration
         if not actual_next_level_itemsets:
             print(f"    [Debug H-Mine Loop-{level_count}] Next_level (actual frequent) is empty. Breaking loop.")

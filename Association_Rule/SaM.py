@@ -78,6 +78,33 @@ def calculate_global_support_sam(item_set, item_tids_global, total_transactions_
     support = len(common_tids) / total_transactions_global if total_transactions_global > 0 else 0
     return support, item_set
 
+# Helper function for parallel rule generation for SaM (similar to RARM's/OPUS's task)
+# Takes a single globally frequent itemset and checks if any rule derived from it meets min_confidence.
+# Returns the original frequent itemset if a strong rule is found, otherwise None.
+def generate_sam_rules_for_itemset_task(f_itemset, min_conf, sam_miner_get_support_func):
+    found_strong_rule = False
+    if len(f_itemset) > 1:
+        # We need the support of the full itemset (f_itemset) for confidence calculation.
+        support_f_itemset = sam_miner_get_support_func(f_itemset)
+
+        if support_f_itemset == 0: # Should not happen for a frequent itemset found globally
+            return None
+
+        for i in range(1, len(f_itemset)):
+            for antecedent_tuple in combinations(f_itemset, i):
+                antecedent = frozenset(antecedent_tuple)
+                support_antecedent = sam_miner_get_support_func(antecedent)
+                confidence = 0
+                if support_antecedent > 0:
+                    confidence = support_f_itemset / support_antecedent
+                
+                if confidence >= min_conf:
+                    found_strong_rule = True
+                    break # Found one strong rule for this f_itemset
+            if found_strong_rule:
+                break
+    
+    return f_itemset if found_strong_rule else None
 
 def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
     if num_processes is None:
@@ -186,7 +213,42 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
         current_itemset_size = len(next(iter(current_level_itemsets)))
         print(f"    [Debug SaM MergeLoop-{level_count}] Processing itemsets of size: {current_itemset_size}. Num itemsets in current_level: {len(current_level_itemsets)}")
         
-        next_level_candidates = set()
+        # Rule Generation from current_level_itemsets - NOW PARALLELIZED
+        if current_level_itemsets: # Process rules if current_level is not empty
+            print(f"    [Debug SaM MergeLoop-{level_count}] Generating rules from {len(current_level_itemsets)} (size {current_itemset_size}) globally frequent itemsets using {num_processes} processes...")
+            rule_gen_tasks_sam = [
+                (itemset, min_confidence, miner.get_support) 
+                for itemset in current_level_itemsets
+            ]
+            if rule_gen_tasks_sam:
+                with multiprocessing.Pool(processes=num_processes) as pool:
+                    results_validated_fitemsets_for_sam_rules = pool.starmap(generate_sam_rules_for_itemset_task, rule_gen_tasks_sam)
+                
+                for f_itemset_with_strong_rule in results_validated_fitemsets_for_sam_rules:
+                    if f_itemset_with_strong_rule:
+                        rule_dict = {}
+                        for rule_item_str in f_itemset_with_strong_rule:
+                            key, value = rule_item_str.split('=', 1)
+                            try:
+                                val_float = float(value)
+                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                            except ValueError:
+                                rule_dict[key] = value
+                        rule_tuple = tuple(sorted(rule_dict.items()))
+                        rule_set.add(rule_tuple)
+            print(f"    [Debug SaM MergeLoop-{level_count}] Rule set size after processing level {current_itemset_size}: {len(rule_set)}")
+
+        # Original sequential rule generation loop (now replaced by parallel version above)
+        # print(f"    [Debug SaM MergeLoop-{level_count}] Generating rules from {len(current_level_itemsets)} (size {current_itemset_size}) globally frequent itemsets...")
+        # for itemset_in_current_level in current_level_itemsets: ...
+        #     if len(itemset_in_current_level) > 1: ...
+        #         for i in range(1, len(itemset_in_current_level)): ...
+        #             for antecedent_tuple in combinations(itemset_in_current_level, i): ...
+        #                 if confidence >= min_confidence: ...
+        #                     rule_set.add(rule_tuple) ...
+
+        # Candidate generation part (Apriori-like) for the NEXT level
+        next_level_candidates = set() # Moved this here, was conflictingly named with the output of parallel support calc before.
         
         # Candidate generation part (Apriori-like)
         # This part itself is complex to parallelize efficiently due to inter-dependencies (checking subsets in current_level_itemsets)
@@ -227,6 +289,7 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
         
         next_level_candidates = next_level_itemsets_from_merge # Assign to the variable used later
 
+        '''
         # Generate rules from the current frequent 'itemset' (from current_level_itemsets)
         # This rule generation can also be parallelized by chunking current_level_itemsets
         if len(itemset) > 1: # itemset here refers to the one from `for itemset_idx, itemset in enumerate(current_level_itemsets):`
@@ -264,6 +327,7 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
                                 rule_set.add(rule_tuple)
                                 # if len(rule_set) % 500 == 0:
                                 #     print(f"          [Debug SaM MergeLoop-{level_count}] Added rule (total {len(rule_set)}): {rule_tuple}, Conf: {confidence:.4f}")
+        '''
         
         print(f"    [Debug SaM MergeLoop-{level_count}] Finished processing level. Next_level candidates size: {len(next_level_candidates)}. Total rules so far: {len(rule_set)}")
         if not next_level_candidates:

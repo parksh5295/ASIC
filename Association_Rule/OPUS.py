@@ -28,6 +28,36 @@ def calculate_support_for_opus_candidate(item_tids, transaction_count, support_c
     # The main process can update its cache if needed based on results, but for pruning, only support value is critical.
     return support, candidate_itemset
 
+# Helper function for parallel rule generation for OPUS (similar to RARM's task)
+# Takes a single frequent itemset and checks if any rule derived from it meets min_confidence.
+# Returns the original frequent itemset if a strong rule is found, otherwise None.
+def generate_opus_rules_for_itemset_task(f_itemset, min_conf, opus_miner_item_tids, opus_miner_transaction_count, opus_miner_get_support_func):
+    found_strong_rule = False
+    if len(f_itemset) > 1:
+        # We need the support of the full itemset (f_itemset) for confidence calculation.
+        # Instead of calling calculate_support_for_candidate again, 
+        # we should ideally use the support value that made f_itemset frequent.
+        # However, opus_miner_get_support_func is passed, which can use caching.
+        support_f_itemset = opus_miner_get_support_func(f_itemset)
+
+        if support_f_itemset == 0: # Should not happen for a frequent itemset
+            return None
+
+        for i in range(1, len(f_itemset)):
+            for antecedent_tuple in combinations(f_itemset, i):
+                antecedent = frozenset(antecedent_tuple)
+                support_antecedent = opus_miner_get_support_func(antecedent)
+                confidence = 0
+                if support_antecedent > 0:
+                    confidence = support_f_itemset / support_antecedent
+                
+                if confidence >= min_conf:
+                    found_strong_rule = True
+                    break # Found one strong rule for this f_itemset
+            if found_strong_rule:
+                break
+    
+    return f_itemset if found_strong_rule else None
 
 class OPUSMiner:
     def __init__(self):
@@ -138,9 +168,33 @@ def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
         current_itemset_size = len(next(iter(current_level_itemsets)))
         print(f"    [Debug OPUS Loop-{level_count}] Processing itemsets of size: {current_itemset_size}. Num itemsets in current_level: {len(current_level_itemsets)}")
         
-        next_level_candidates = set() # Renamed for clarity
-        
-        # Generate rules from current level itemsets
+        # Rule Generation from current_level_itemsets - NOW PARALLELIZED
+        if current_level_itemsets: # Ensure there are itemsets to process for rules
+            print(f"      [Debug OPUS Loop-{level_count}] Generating rules from {len(current_level_itemsets)} (size {current_itemset_size}) frequent itemsets using {num_processes} processes...")
+            rule_gen_tasks = [
+                (itemset, min_confidence, miner.item_tids, miner.transaction_count, miner.get_support) 
+                for itemset in current_level_itemsets
+            ]
+            if rule_gen_tasks:
+                with multiprocessing.Pool(processes=num_processes) as pool:
+                    results_validated_fitemsets_for_rules = pool.starmap(generate_opus_rules_for_itemset_task, rule_gen_tasks)
+                
+                for f_itemset_with_strong_rule in results_validated_fitemsets_for_rules:
+                    if f_itemset_with_strong_rule:
+                        rule_dict = {}
+                        for rule_item_str in f_itemset_with_strong_rule:
+                            key, value = rule_item_str.split('=', 1) # Allow '=' in value
+                            try:
+                                val_float = float(value)
+                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                            except ValueError:
+                                rule_dict[key] = value
+                        rule_tuple = tuple(sorted(rule_dict.items()))
+                        rule_set.add(rule_tuple)
+            print(f"      [Debug OPUS Loop-{level_count}] Rule set size after processing level {current_itemset_size}: {len(rule_set)}")
+
+        # Generate next level candidates (Apriori-gen style before OPUS prune)
+        next_level_candidates = set() # Moved this line higher, was after rule gen.
         for itemset_idx, itemset in enumerate(current_level_itemsets):
             if itemset_idx > 0 and itemset_idx % 500 == 0: # Log every 500 itemsets
                 print(f"      [Debug OPUS Loop-{level_count}] Processing itemset {itemset_idx}/{len(current_level_itemsets)} for rules: {itemset}")
