@@ -23,11 +23,11 @@ from Dataset_Choose_Rule.save_csv import csv_association
 from Dataset_Choose_Rule.time_save import time_save_csv_CS
 
 # Helper function for parallel processing
-def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit):
+def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes):
     """Processes a single iteration of the confidence loop."""
-    print(f"Processing for min_confidence: {min_confidence}")
-    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
-    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric)
+    print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod}")
+    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
+    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
     signatures = dict_list_difference(association_list_anomal, association_list_nomal)
     signature_result = signature_evaluate(group_mapped_df, signatures)
     signature_sets = under_limit(signature_result, signature_ea, precision_underlimit)
@@ -179,7 +179,7 @@ def main():
     start = time.time()
 
 
-    min_support = 0.1
+    min_support = 0.2
 
     # Use a lower min_support value for NSL-KDD
     if file_type in ['NSL-KDD', 'NSL_KDD']:
@@ -217,8 +217,31 @@ def main():
 
     print("Starting parallel processing for confidence values...")
 
-    # Prepare arguments for the worker function
-    # These are constant across all iterations for min_confidence
+    # Determine number of processes for the main pool (iterating over confidence values)
+    # Limit by the number of tasks or CPU cores, whichever is smaller.
+    num_confidence_tasks = len(confidence_values)
+    available_cores = multiprocessing.cpu_count()
+    main_pool_procs = min(num_confidence_tasks, available_cores) if num_confidence_tasks > 0 else 1
+    
+    print(f"Number of confidence values (tasks): {num_confidence_tasks}")
+    print(f"Available CPU cores: {available_cores}")
+    print(f"Using {main_pool_procs} processes for parallel confidence iterations (main_pool_procs).")
+
+    # Determine num_processes for internal algorithm parallelization (algo_internal_procs)
+    if main_pool_procs == 0: # Should not happen if tasks exist and main_pool_procs is set above
+        effective_main_pool_procs = 1 # Ensure at least 1 to avoid division by zero
+    else:
+        effective_main_pool_procs = main_pool_procs
+        
+    if effective_main_pool_procs == 1: # If confidence loop is effectively sequential
+        algo_internal_procs = available_cores # Internal algo can use all cores
+    else:
+        # Distribute cores among the main pool tasks for their internal parallelization
+        algo_internal_procs = max(1, available_cores // effective_main_pool_procs)
+    
+    print(f"Calculated algo_internal_procs (for each association algorithm): {algo_internal_procs}")
+
+    # Prepare arguments for the worker function (process_confidence_iteration)
     static_args = (
         anomal_grouped_data,
         nomal_grouped_data,
@@ -227,29 +250,29 @@ def main():
         association_metric,
         group_mapped_df,
         signature_ea,
-        precision_underlimit
+        precision_underlimit,
+        algo_internal_procs # Pass the calculated number of processes for the algorithm
     )
 
     # Create a list of arguments for starmap: (min_confidence_value, *static_args)
-    # confidence_values is defined earlier as np.arange(0.1, 1.0, 0.05)
     tasks = [(conf_val,) + static_args for conf_val in confidence_values]
-
-    # Determine number of processes (e.g., number of CPU cores)
-    # You might want to adjust this based on your system and other running processes
-    num_processes = multiprocessing.cpu_count() 
-    print(f"Using {num_processes} processes for parallel execution.")
 
     results = []
     try:
-        with multiprocessing.Pool(processes=num_processes) as pool:
-            # starmap blocks until all results are ready
-            # Each item in 'results' will be (min_confidence, current_recall, signature_sets)
-            results = pool.starmap(process_confidence_iteration, tasks)
+        # Use the determined main_pool_procs for the outer pool
+        # Only use Pool if there's actual parallelism to be gained (more than 1 task and more than 1 process for pool)
+        if main_pool_procs > 1 and len(tasks) > 1:
+            print(f"Executing {len(tasks)} confidence tasks in parallel using a pool of {main_pool_procs} processes.")
+            with multiprocessing.Pool(processes=main_pool_procs) as pool:
+                results = pool.starmap(process_confidence_iteration, tasks)
+        elif tasks: # If there are tasks but no parallelism needed for the pool (or only 1 task)
+            print(f"Executing {len(tasks)} confidence tasks sequentially.")
+            results = [process_confidence_iteration(*task_args) for task_args in tasks]
+        else:
+            print("No confidence tasks to execute.")
+
     except Exception as e:
-        print(f"An error occurred during parallel processing: {e}")
-        # Fallback or error handling, e.g., run sequentially or re-raise
-        # For now, just print and proceed, which might mean empty results
-        # depending on where the error occurred.
+        print(f"An error occurred during processing confidence iterations: {e}")
 
     print("Parallel processing finished. Aggregating results...")
     

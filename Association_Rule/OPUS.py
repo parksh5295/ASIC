@@ -3,6 +3,30 @@
 
 from collections import defaultdict
 from itertools import combinations
+import pandas as pd # For pd.Timestamp
+import multiprocessing # Add multiprocessing
+
+# Helper function for parallel support calculation in OPUS prune_candidates
+# Needs to be defined at the top level or be picklable by multiprocessing
+def calculate_support_for_opus_candidate(item_tids, transaction_count, support_cache_for_worker, candidate_itemset):
+    # support_cache_for_worker is a read-only copy for this worker, or could be managed if writable
+    if not candidate_itemset:
+        return 0, candidate_itemset
+
+    items_key = frozenset(candidate_itemset) # Ensure consistent key type
+    if items_key in support_cache_for_worker:
+        return support_cache_for_worker[items_key], candidate_itemset
+    
+    if not all(item in item_tids for item in candidate_itemset):
+        # print(f"Warning: Item in {candidate_itemset} not found in TIDs for OPUS. Skipping.")
+        return 0, candidate_itemset
+        
+    common_tids = set.intersection(*(item_tids[item] for item in candidate_itemset))
+    support = len(common_tids) / transaction_count if transaction_count > 0 else 0
+    
+    # Note: Worker does not update the shared cache here to avoid complexity.
+    # The main process can update its cache if needed based on results, but for pruning, only support value is critical.
+    return support, candidate_itemset
 
 
 class OPUSMiner:
@@ -35,73 +59,160 @@ class OPUSMiner:
             
         return support
     
-    def prune_candidates(self, candidates, min_support):
-        # Prune candidates using OPUS style
-        return {c for c in candidates if self.get_support(c) >= min_support}
+    def prune_candidates(self, candidates_to_prune, min_support, num_processes_for_prune=None): # Added num_processes
+        # Prune candidates using OPUS style, now with parallel support calculation
+        if not candidates_to_prune:
+            return set()
+
+        if num_processes_for_prune is None:
+            num_processes_for_prune = multiprocessing.cpu_count() 
+
+        pruned_set = set()
+        # For parallel processing, it's better to convert the set of candidates to a list first.
+        candidate_list = list(candidates_to_prune)
+        
+        # Prepare tasks for parallel support calculation
+        # Pass a copy of the current support_cache if it's small, or handle caching strategy carefully.
+        # For simplicity, let's assume each worker might re-calculate some supports if cache is not effectively shared or large.
+        # A read-only snapshot of the cache can be passed.
+        tasks = [(self.item_tids, self.transaction_count, dict(self.support_cache), cand) for cand in candidate_list]
+
+        print(f"      [Debug OPUS Prune] Pruning {len(candidate_list)} candidates using {num_processes_for_prune} processes...")
+        if tasks:
+            with multiprocessing.Pool(processes=num_processes_for_prune) as pool:
+                results = pool.starmap(calculate_support_for_opus_candidate, tasks)
+            
+            for support, itemset_cand in results:
+                if support >= min_support:
+                    pruned_set.add(itemset_cand)
+                    # Optionally, update the main miner's cache here, but be mindful of potential race conditions
+                    # if multiple levels were to somehow write concurrently (not the case here as prune is per level).
+                    # For safety, cache update can be done after pool completion based on `results` if needed for future `get_support` calls
+                    # outside of parallel pruning.
+                    # items_key = frozenset(itemset_cand)
+                    # if len(itemset_cand) <= 3 and items_key not in self.support_cache: # Update if small and not present
+                    #    self.support_cache[items_key] = support
+        return pruned_set
 
 
-def opus(df, min_support=0.5, min_confidence=0.8):
+def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
+    if num_processes is None:
+        num_processes = multiprocessing.cpu_count()
+    print(f"    [Debug OPUS Init] Algorithm: OPUS, Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
+    start_time_total = pd.Timestamp.now()
+
     # Initialize OPUS miner
     miner = OPUSMiner()
     
     # Convert data and build initial structure
+    print(f"    [Debug OPUS DataLoad] Initializing OPUSMiner and loading transactions...")
+    start_time_dataload = pd.Timestamp.now()
     for tid, row in enumerate(df.itertuples(index=False, name=None)):
         items = set(f"{col}={val}" for col, val in zip(df.columns, row))
         miner.add_transaction(tid, items)
+    dataload_duration = (pd.Timestamp.now() - start_time_dataload).total_seconds()
+    print(f"    [Debug OPUS DataLoad] Transactions loaded. Total transactions: {miner.transaction_count}. Time: {dataload_duration:.2f}s")
     
     # Find frequent 1-itemsets
-    frequent_items = {
-        item for item in miner.item_tids
-        if len(miner.item_tids[item]) / miner.transaction_count >= min_support
+    print(f"    [Debug OPUS Freq1] Finding frequent 1-itemsets...")
+    frequent_items = {\
+        item for item in miner.item_tids\
+        if len(miner.item_tids[item]) / miner.transaction_count >= min_support\
     }
+    print(f"    [Debug OPUS Freq1] Found {len(frequent_items)} frequent 1-itemsets.")
+    if not frequent_items:
+        print("    [Debug OPUS Freq1] No frequent 1-items found. Returning empty list.")
+        return []
     
     # Set for rule storage
     rule_set = set()
     
     # Incremental pattern discovery using OPUS style
-    current_level = {frozenset([item]) for item in frequent_items}
+    current_level_itemsets = {frozenset([item]) for item in frequent_items} # Renamed for clarity
     
-    while current_level:
-        next_candidates = set()
+    level_count = 1
+    while current_level_itemsets:
+        if not current_level_itemsets:
+            print(f"    [Debug OPUS Loop-{level_count}] current_level_itemsets is empty. Breaking.")
+            break
+        current_itemset_size = len(next(iter(current_level_itemsets)))
+        print(f"    [Debug OPUS Loop-{level_count}] Processing itemsets of size: {current_itemset_size}. Num itemsets in current_level: {len(current_level_itemsets)}")
+        
+        next_level_candidates = set() # Renamed for clarity
         
         # Generate rules from current level itemsets
-        for itemset in current_level:
-            # Efficient subset processing
-            for i in range(1, len(itemset)):
-                for antecedent in combinations(itemset, i):
-                    antecedent = frozenset(antecedent)
-                    consequent = itemset - antecedent
-                    
-                    ant_support = miner.get_support(antecedent)
-                    if ant_support > 0:
-                        confidence = miner.get_support(itemset) / ant_support
+        for itemset_idx, itemset in enumerate(current_level_itemsets):
+            if itemset_idx > 0 and itemset_idx % 500 == 0: # Log every 500 itemsets
+                print(f"      [Debug OPUS Loop-{level_count}] Processing itemset {itemset_idx}/{len(current_level_itemsets)} for rules: {itemset}")
+
+            # Efficient subset processing for rule generation
+            if len(itemset) > 1:
+                for i in range(1, len(itemset)):
+                    for antecedent_tuple in combinations(itemset, i):
+                        antecedent = frozenset(antecedent_tuple)
+                        # consequent = itemset - antecedent # Not directly used here
                         
-                        if confidence >= min_confidence:
-                            # Convert rule to sorted tuple
-                            rule_dict = {}
-                            for item in itemset:
-                                key, value = item.split('=')
-                                rule_dict[key] = round(float(value))
+                        ant_support = miner.get_support(antecedent)
+                        if ant_support > 0:
+                            itemset_support = miner.get_support(itemset) # Get support of full itemset for confidence
+                            confidence = itemset_support / ant_support
                             
-                            rule_tuple = tuple(sorted(rule_dict.items()))
-                            rule_set.add(rule_tuple)
+                            if confidence >= min_confidence:
+                                # Convert rule to sorted tuple
+                                rule_dict = {}
+                                for rule_item_str in itemset: # OPUS typically considers the frequent itemset itself as a pattern/rule context
+                                    key, value = rule_item_str.split('=')
+                                    try:
+                                        val_float = float(value)
+                                        rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                                    except ValueError:
+                                        rule_dict[key] = value # Keep as string
+                                
+                                rule_tuple = tuple(sorted(rule_dict.items()))
+                                if rule_tuple not in rule_set:
+                                    rule_set.add(rule_tuple)
+                                    # if len(rule_set) % 500 == 0:
+                                    #     print(f"        [Debug OPUS Loop-{level_count}] Added rule/itemset (total {len(rule_set)}): {rule_tuple}, Conf (of a derived rule): {confidence:.4f}")
             
-            # Generate next level candidates
-            for other in current_level:
-                if len(other) == len(itemset):
-                    new_candidate = itemset.union(other)
-                    if len(new_candidate) == len(itemset) + 1:
-                        # Check if all subsets are frequent
-                        if all(frozenset(subset) in current_level 
-                              for subset in combinations(new_candidate, len(itemset))):
-                            next_candidates.add(new_candidate)
+            # Generate next level candidates (Apriori-gen style before OPUS prune)
+            # Based on the provided code, it seems to use a Apriori-like candidate generation.
+            for other_itemset_idx, other_itemset in enumerate(current_level_itemsets):
+                 if itemset_idx < other_itemset_idx: # Avoid duplicates and self-comparison for candidate generation
+                    if len(itemset.intersection(other_itemset)) == current_itemset_size - 1: # Join if they share k-1 items
+                        new_candidate = itemset.union(other_itemset)
+                        # Pruning of subsets (Apriori property) is implicitly handled if all subsets were in current_level_itemsets
+                        # The explicit check `all(frozenset(subset) in current_level_itemsets ...)` is more robust for Apriori-gen
+                        # For OPUS, the pruning is done by miner.prune_candidates later on all generated next_level_candidates
+                        # The current code seems to imply adding all k+1 candidates formed this way then pruning. Let's follow that.
+                        if len(new_candidate) == current_itemset_size + 1:
+                             # Check if all (k)-subsets are in current_level_itemsets (Apriori prune before adding to next_level_candidates)
+                            all_subsets_frequent_in_current_level = True
+                            if current_itemset_size > 0:
+                                for subset_check_tuple in combinations(new_candidate, current_itemset_size):
+                                    if frozenset(subset_check_tuple) not in current_level_itemsets:
+                                        all_subsets_frequent_in_current_level = False
+                                        break
+                            if all_subsets_frequent_in_current_level:
+                                if len(next_level_candidates) % 1000 == 0 and len(next_level_candidates) > 0:
+                                    print(f"        [Debug OPUS Loop-{level_count}] Generated candidate for next_level_candidates (count {len(next_level_candidates)}): {new_candidate}")
+                                next_level_candidates.add(new_candidate)
         
+        print(f"    [Debug OPUS Loop-{level_count}] Generated {len(next_level_candidates)} candidates for next level. Now pruning...")
         # Prune candidates using OPUS style to determine next level
-        current_level = miner.prune_candidates(next_candidates, min_support)
+        start_prune_time = pd.Timestamp.now()
+        # Pass num_processes to the prune_candidates method
+        current_level_itemsets = miner.prune_candidates(next_level_candidates, min_support, num_processes_for_prune=num_processes)
+        prune_duration = (pd.Timestamp.now() - start_prune_time).total_seconds()
+        print(f"    [Debug OPUS Loop-{level_count}] Pruning finished. Next level (current_level_itemsets) size: {len(current_level_itemsets)}. Pruning time: {prune_duration:.2f}s. Total rules/itemsets so far: {len(rule_set)}")
         
-        # Memory management: Clear support cache when no longer needed
-        if len(current_level) == 0:
+        # Memory management: Clear support cache when no longer needed (though OPUSMiner caches only small itemsets)
+        if not current_level_itemsets:
+            print(f"    [Debug OPUS Loop-{level_count}] current_level_itemsets is empty after pruning. Clearing support cache. Breaking loop.")
             miner.support_cache.clear()
+            break # Exit while loop
+        level_count +=1
     
+    total_duration = (pd.Timestamp.now() - start_time_total).total_seconds()
+    print(f"    [Debug OPUS Finish] OPUS processing finished. Total unique rules/itemsets recorded: {len(rule_set)}. Total time: {total_duration:.2f}s")
     # Convert results
     return [dict(rule) for rule in rule_set]
