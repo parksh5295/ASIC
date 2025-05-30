@@ -12,10 +12,44 @@ import pandas as pd # Add pandas for Timestamp if not already there (it seems to
 # It will take the miner's item_tids and transaction_count along with a candidate itemset
 def calculate_support_for_candidate(item_tids, transaction_count, candidate_itemset):
     if not candidate_itemset:
+        return 0, candidate_itemset # Return itemset for consistency if starmap expects it
+    # Ensure all items in 'candidate_itemset' are present in item_tids to avoid KeyError
+    # when an item might have been part of a candidate but had 0 support initially (though unlikely for frequent itemsets)
+    valid_items_in_candidate = [item for item in candidate_itemset if item in item_tids]
+    if len(valid_items_in_candidate) != len(candidate_itemset): # Should not happen if candidate comes from frequent items
         return 0, candidate_itemset
-    common_tids = set.intersection(*(item_tids[item] for item in candidate_itemset if item in item_tids))
+
+
+    common_tids = set.intersection(*(item_tids[item] for item in valid_items_in_candidate))
     support = len(common_tids) / transaction_count if transaction_count > 0 else 0
     return support, candidate_itemset
+
+
+# Helper function for parallel rule generation for a single frequent itemset
+def generate_rules_for_itemset_task(f_itemset, min_confidence, item_tids, transaction_count):
+    rules_found_for_this_itemset = set() # Stores frozensets of antecedents
+    if len(f_itemset) > 1:
+        support_f_itemset, _ = calculate_support_for_candidate(item_tids, transaction_count, f_itemset)
+
+        if support_f_itemset == 0: # Should not happen for a frequent itemset, but as a safe guard
+            return rules_found_for_this_itemset
+
+        for i in range(1, len(f_itemset)): # Iterate through possible sizes of antecedent
+            for antecedent_tuple in combinations(f_itemset, i):
+                antecedent = frozenset(antecedent_tuple)
+                
+                support_antecedent, _ = calculate_support_for_candidate(item_tids, transaction_count, antecedent)
+
+                confidence = 0
+                if support_antecedent > 0:
+                    # Confidence = P(Consequent | Antecedent) = Support(Full Itemset) / Support(Antecedent)
+                    confidence = support_f_itemset / support_antecedent 
+                
+                if confidence >= min_confidence:
+                    # Store the antecedent (LHS of the rule A -> F-A)
+                    rules_found_for_this_itemset.add(antecedent)
+    return rules_found_for_this_itemset
+
 
 class RARMiner:
     def __init__(self):
@@ -145,31 +179,32 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None): # Added n
         # Rule generation from newly found frequent itemsets (next_level_frequent_itemsets)
         # This part is kept sequential for now but can also be parallelized if it's a bottleneck.
         if next_level_frequent_itemsets:
-            print(f"    [Debug RARM Loop-{level_count}] Generating rules from {len(next_level_frequent_itemsets)} frequent itemsets...")
-            for f_itemset in next_level_frequent_itemsets: # f_itemset is a frequent itemset from the current discovery
-                if len(f_itemset) > 1:
-                    for i in range(1, len(f_itemset)):
-                        for antecedent_tuple in combinations(f_itemset, i):
-                            antecedent = frozenset(antecedent_tuple)
-                            # consequent = f_itemset - antecedent # Not directly used for dict key
-                            
-                            confidence = miner.get_confidence(antecedent, f_itemset) # Uses the original miner.get_support
-                            if confidence >= min_confidence:
-                                rule_dict = {}
-                                for rule_item_str in antecedent:
-                                    key, value = rule_item_str.split('=', 1) # Split only on the first '='
-                                    try:
-                                        # Attempt to convert to float, then to int if it's a whole number
-                                        val_float = float(value)
-                                        if val_float.is_integer():
-                                            rule_dict[key] = int(val_float)
-                                        else:
-                                            rule_dict[key] = val_float
-                                    except ValueError:
-                                        rule_dict[key] = value # Keep as string
-                                
-                                rule_tuple_representation = tuple(sorted(rule_dict.items()))
-                                rule_set.add(rule_tuple_representation)
+            print(f"    [Debug RARM Loop-{level_count}] Generating rules from {len(next_level_frequent_itemsets)} frequent itemsets using {num_processes} processes for rule generation...")
+            
+            tasks_rule_gen = []
+            for f_set in next_level_frequent_itemsets:
+                tasks_rule_gen.append((f_set, min_confidence, miner.item_tids, miner.transaction_count))
+
+            if tasks_rule_gen:
+                with multiprocessing.Pool(processes=num_processes) as pool:
+                    results_rules_antecedents_sets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
+                
+                for antecedents_fset_collection in results_rules_antecedents_sets:
+                    for antecedent_fset in antecedents_fset_collection:
+                        # Convert the frozenset of "key=value" strings back to the original rule_dict format for storage
+                        rule_dict_temp = {}
+                        for item_str in antecedent_fset:
+                            key, value_str_annt = item_str.split('=', 1)
+                            try:
+                                val_flt = float(value_str_annt)
+                                if val_flt.is_integer():
+                                    rule_dict_temp[key] = int(val_flt)
+                                else:
+                                    rule_dict_temp[key] = val_flt
+                            except ValueError:
+                                rule_dict_temp[key] = value_str_annt
+                        rule_set.add(tuple(sorted(rule_dict_temp.items()))) # Add tuple of sorted items
+
             print(f"    [Debug RARM Loop-{level_count}] Rule set size after level {level_count}: {len(rule_set)}")
         
         if not next_level_frequent_itemsets:
