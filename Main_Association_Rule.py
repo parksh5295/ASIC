@@ -221,10 +221,11 @@ def main():
     # Limit by the number of tasks or CPU cores, whichever is smaller.
     num_confidence_tasks = len(confidence_values)
     available_cores = multiprocessing.cpu_count()
-
+    # main_pool_procs = min(num_confidence_tasks, available_cores) if num_confidence_tasks > 0 else 1 # Original logic commented out
+    
     # Force sequential processing for confidence values to prioritize internal algorithm parallelism
     main_pool_procs = 1
-    print(f"Set main_pool_procs to 1 to prioritize internal algorithm parallelism.")
+    # print(f"Set main_pool_procs to 1 to prioritize internal algorithm parallelism.") # Redundant print, new prints below cover this
     
     # Internal algorithms will use all available cores
     algo_internal_procs = available_cores 
@@ -233,6 +234,19 @@ def main():
     print(f"Available CPU cores: {available_cores}")
     print(f"Main pool will run sequentially (main_pool_procs = {main_pool_procs}).")
     print(f"Internal algorithms will use {algo_internal_procs} processes (algo_internal_procs).")
+
+    # Determine num_processes for internal algorithm parallelization (algo_internal_procs)
+    # The following block is COMMENTED OUT as it's replaced by the logic above to prioritize internal parallelism.
+    # if main_pool_procs > 1:
+    #     # If the main confidence loop is parallel, run internal algorithms sequentially
+    #     algo_internal_procs = 1
+    #     print(f"Main pool is parallel ({main_pool_procs} processes), so internal algorithms will run sequentially (algo_internal_procs = 1).")
+    # else:
+    #     # If the main confidence loop is sequential, internal algorithms can use all available cores
+    #     algo_internal_procs = available_cores
+    #     print(f"Main pool is sequential, so internal algorithms can use all available cores (algo_internal_procs = {available_cores}).")
+    # 
+    # print(f"Calculated algo_internal_procs (for each association algorithm): {algo_internal_procs}") # This print is now covered by the one above
 
     # Prepare arguments for the worker function (process_confidence_iteration)
     static_args = (
