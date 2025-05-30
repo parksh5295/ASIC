@@ -27,12 +27,14 @@ def calculate_support_for_candidate(item_tids, transaction_count, candidate_item
 
 # Helper function for parallel rule generation for a single frequent itemset
 def generate_rules_for_itemset_task(f_itemset, min_confidence, item_tids, transaction_count):
-    rules_found_for_this_itemset = set() # Stores frozensets of antecedents
+    # rules_found_for_this_itemset = set() # No longer returning antecedents
+    found_strong_rule = False
     if len(f_itemset) > 1:
         support_f_itemset, _ = calculate_support_for_candidate(item_tids, transaction_count, f_itemset)
 
         if support_f_itemset == 0: # Should not happen for a frequent itemset, but as a safe guard
-            return rules_found_for_this_itemset
+            # return rules_found_for_this_itemset
+            return None
 
         for i in range(1, len(f_itemset)): # Iterate through possible sizes of antecedent
             for antecedent_tuple in combinations(f_itemset, i):
@@ -47,8 +49,16 @@ def generate_rules_for_itemset_task(f_itemset, min_confidence, item_tids, transa
                 
                 if confidence >= min_confidence:
                     # Store the antecedent (LHS of the rule A -> F-A)
-                    rules_found_for_this_itemset.add(antecedent)
-    return rules_found_for_this_itemset
+                    # rules_found_for_this_itemset.add(antecedent)
+                    found_strong_rule = True
+                    break # Found one strong rule, no need to check others for this f_itemset
+            if found_strong_rule:
+                break
+    
+    if found_strong_rule:
+        return f_itemset # Return the full frequent itemset
+    else:
+        return None # No strong rule found for this itemset
 
 
 class RARMiner:
@@ -187,13 +197,19 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None): # Added n
 
             if tasks_rule_gen:
                 with multiprocessing.Pool(processes=num_processes) as pool:
-                    results_rules_antecedents_sets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
+                    # results_rules_antecedents_sets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
+                    # The worker now returns the full f_itemset if a strong rule is found, or None
+                    results_validated_fitemsets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
                 
-                for antecedents_fset_collection in results_rules_antecedents_sets:
-                    for antecedent_fset in antecedents_fset_collection:
+                # for antecedents_fset_collection in results_rules_antecedents_sets:
+                #     for antecedent_fset in antecedents_fset_collection:
+                #         if antecedent_fset: # Check if antecedent_fset is not None or empty, depending on worker
+                for f_itemset_with_strong_rule in results_validated_fitemsets:
+                    if f_itemset_with_strong_rule: # If the worker returned a frequent itemset (meaning a strong rule was found)
                         # Convert the frozenset of "key=value" strings back to the original rule_dict format for storage
                         rule_dict_temp = {}
-                        for item_str in antecedent_fset:
+                        # for item_str in antecedent_fset: # OLD: iterating over antecedent
+                        for item_str in f_itemset_with_strong_rule: # NEW: iterating over the full frequent itemset
                             key, value_str_annt = item_str.split('=', 1)
                             try:
                                 val_flt = float(value_str_annt)
