@@ -194,7 +194,7 @@ def main():
     best_confidence = 0.8    # Initialize the variables to change
     # Considering anomalies and nomals simultaneously
 
-    confidence_values = np.arange(0.1, 1.0, 0.05)
+    confidence_values = np.arange(0.7, 9.6, 0.05)
     best_recall = 0
 
     print("min_support: ", min_support)
