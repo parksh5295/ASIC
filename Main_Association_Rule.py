@@ -22,12 +22,16 @@ from Modules.Difference_sets import dict_list_difference
 from Dataset_Choose_Rule.save_csv import csv_association
 from Dataset_Choose_Rule.time_save import time_save_csv_CS
 import logging
+from datetime import datetime
+
+# Setup logger for this module
+logger = logging.getLogger(__name__)
 
 # Helper function for parallel processing
 def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes):
     """Processes a single iteration of the confidence loop."""
     iteration_start_time = time.time()
-    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file={Association_mathod}")
+    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file={Association_mathod}, algo_procs={algo_num_processes}")
 
     print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod}")
     association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
@@ -85,6 +89,7 @@ def main():
     total_start_time = time.time()  # Start All Time
     timing_info = {}  # For step-by-step time recording
 
+    logger.info(f"Global start time: {datetime.fromtimestamp(total_start_time).strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 1. Data loading
     start = time.time()
@@ -95,6 +100,8 @@ def main():
     data = file_cut(file_type, file_path, cut_type)
 
     timing_info['1_load_data'] = time.time() - start
+    logger.info(f"Loading data from file: {file_path}")
+    logger.info(f"Data loading complete. Anomal transactions: {len(data) - len(data[data['label'] == 0])}, Nomal transactions: {len(data[data['label'] == 0])}")
 
 
     # 2. Handling judgments of Anomal or Nomal
@@ -320,11 +327,22 @@ def main():
     # Save time information as a CSV
     time_save_csv_CS(file_type, file_number, Association_mathod, timing_info, best_confidence, min_support) # Added best_confidence and min_support for context in timing
 
+    logger.info(f"Total execution time for all algorithms: {total_end_time - total_start_time:.2f} seconds")
+    logger.info(f"Global end time: {datetime.fromtimestamp(total_end_time).strftime('%Y-%m-%d %H:%M:%S')}")
 
     return association_result
 
 
 if __name__ == '__main__':
-    # Setup basic logging
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    # Setup basic logging to show all debug messages and above
+    logging.basicConfig(level=logging.DEBUG, 
+                        format='%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s',
+                        handlers=[logging.StreamHandler()]) # Ensure it logs to console
+    
+    # Optionally, add a file handler
+    # file_handler = logging.FileHandler('association_main.log')
+    # file_handler.setLevel(logging.DEBUG)
+    # file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s'))
+    # logging.getLogger('').addHandler(file_handler)
+
     main()
