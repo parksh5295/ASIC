@@ -32,8 +32,8 @@ start_idle_spin() {
         eval "$IDLE_CPU_COMMAND" &
         idle_pid=$!
         echo "[Keeper] Idle spin process started with PID: $idle_pid"
-    else
-        echo "[Keeper] Idle spin already running (PID: $idle_pid)."
+    # else
+        # echo "[Keeper] Idle spin already running (PID: $idle_pid)."
     fi
 }
 
@@ -41,14 +41,13 @@ start_idle_spin() {
 stop_idle_spin() {
     if [ -n "$idle_pid" ] && ps -p "$idle_pid" > /dev/null; then
         echo "[Keeper] Main script CPU usage recovered or script ended. Stopping idle spin (PID: $idle_pid)..."
-        # Attempt to kill the process and its children more robustly
-        pkill -P "$idle_pid" # Kill children of idle_pid first
+        pkill -P "$idle_pid" 
         kill "$idle_pid" > /dev/null 2>&1
-        sleep 0.1 # Give a moment for graceful termination
-        if ps -p "$idle_pid" > /dev/null; then # Check if still alive
-            kill -9 "$idle_pid" > /dev/null 2>&1 # Force kill if necessary
+        sleep 0.1 
+        if ps -p "$idle_pid" > /dev/null; then 
+            kill -9 "$idle_pid" > /dev/null 2>&1 
         fi
-        wait "$idle_pid" 2>/dev/null # Suppress "No such process" error if already gone
+        wait "$idle_pid" 2>/dev/null 
         idle_pid=""
         echo "[Keeper] Idle spin process stopped."
     fi
@@ -58,25 +57,47 @@ stop_idle_spin() {
 monitor_and_manage_cpu_load() {
     local main_script_pid=$1
     local command_being_monitored="$2"
+    local last_cpu_above_threshold=true # Flag to track previous state, true means CPU was high or initial state
+    # local first_check=true # Alternative for logging initial state
+
     echo "[Keeper] Monitoring CPU usage for: $command_being_monitored (PID: $main_script_pid)"
 
     while ps -p "$main_script_pid" > /dev/null; do
         current_cpu_usage=$(ps -p "$main_script_pid" -o %cpu --no-headers | awk '{print int($1)}')
-        if [ -z "$current_cpu_usage" ]; then
+        if [ -z "$current_cpu_usage" ]; then # PID disappeared or couldn't read CPU usage
+            # Log this event as it's important
             echo "[Keeper] Could not retrieve CPU usage for PID $main_script_pid ($command_being_monitored) or PID disappeared."
-            stop_idle_spin
-            break
+            # Attempt to stop idle spin if it was running
+            if [ -n "$idle_pid" ] && ps -p "$idle_pid" > /dev/null; then
+                 stop_idle_spin # stop_idle_spin will print its logs
+            fi
+            break # Exit monitoring loop
         fi
-        echo "[Keeper] Script '$command_being_monitored' (PID: $main_script_pid) current CPU: $current_cpu_usage%"
+
+        # Periodic CPU usage logs can be uncommented if needed (for debugging)
+        # echo "[Keeper] Debug: Script '$command_being_monitored' (PID: $main_script_pid) current CPU: $current_cpu_usage% (Threshold: $CPU_USAGE_THRESHOLD, Idle PID: $idle_pid)"
+
         if (( current_cpu_usage < CPU_USAGE_THRESHOLD )); then
-            start_idle_spin
+            # CPU is low. Start spin only if it was previously high or if idle_pid is not running.
+            if [ "$last_cpu_above_threshold" = true ] || ! ( [ -n "$idle_pid" ] && ps -p "$idle_pid" > /dev/null ); then
+                start_idle_spin # This function now logs "Starting idle spin..."
+            fi
+            last_cpu_above_threshold=false
         else
-            stop_idle_spin
+            # CPU is high (or recovered). Stop spin only if it was previously low and idle_pid is running.
+            if [ "$last_cpu_above_threshold" = false ] && ( [ -n "$idle_pid" ] && ps -p "$idle_pid" > /dev/null ); then
+                stop_idle_spin # This function now logs "Stopping idle spin..."
+            fi
+            last_cpu_above_threshold=true
         fi
         sleep "$CHECK_INTERVAL"
     done
+
     echo "[Keeper] Script '$command_being_monitored' (PID: $main_script_pid) appears to have finished."
-    stop_idle_spin
+    # Ensure idle spin is stopped finally, will log if it was running
+    if [ -n "$idle_pid" ] && ps -p "$idle_pid" > /dev/null; then
+        stop_idle_spin 
+    fi
     echo "[Keeper] CPU monitoring for PID $main_script_pid ($command_being_monitored) ended."
 }
 
@@ -107,12 +128,13 @@ for cmd in "${commands[@]}"; do
         echo "Warning: Command '$cmd' exited with error code $SCRIPT_EXIT_CODE."
     fi
 
-    # Terminate the monitor process for this command if it's still running
     echo "Ensuring CPU keeper for '$cmd' (PID: $MONITOR_PID) is stopped..."
     if ps -p "$MONITOR_PID" > /dev/null; then
         kill "$MONITOR_PID" > /dev/null 2>&1 &
     fi
-    stop_idle_spin # Ensure idle spin for the completed command is stopped
+    # Call stop_idle_spin directly here to ensure the idle_pid associated with THIS cmd is stopped
+    # The one inside monitor_and_manage_cpu_load might be for the next cmd if timing is tricky
+    stop_idle_spin 
     echo "----------------------------------------------------------------------"
     echo ""
 
