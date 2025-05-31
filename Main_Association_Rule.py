@@ -21,10 +21,14 @@ from Evaluation.calculate_signature import calculate_signatures
 from Modules.Difference_sets import dict_list_difference
 from Dataset_Choose_Rule.save_csv import csv_association
 from Dataset_Choose_Rule.time_save import time_save_csv_CS
+import logging
 
 # Helper function for parallel processing
 def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes):
     """Processes a single iteration of the confidence loop."""
+    iteration_start_time = time.time()
+    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file={Association_mathod}")
+
     print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod}")
     association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
     association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
@@ -42,7 +46,9 @@ def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grou
     print(f"    Filtered signatures: {len(signature_sets) if signature_sets else 0}")
     print(f"    Current recall: {current_recall}")
 
-    return min_confidence, current_recall, signature_sets
+    total_time_per_iteration = time.time() - iteration_start_time
+    logger.debug(f"DEBUG PCI: Preparing to return. Recall: {current_recall}, Total iteration time: {total_time_per_iteration:.2f}s")
+    return min_confidence, current_recall, signature_sets, total_time_per_iteration
 
 def main():
     # argparser
@@ -194,7 +200,7 @@ def main():
     best_confidence = 0.8    # Initialize the variables to change
     # Considering anomalies and nomals simultaneously
 
-    confidence_values = np.arange(0.7, 9.6, 0.05)
+    confidence_values = np.arange(0.75, 0.96, 0.05)
     best_recall = 0
 
     print("min_support: ", min_support)
@@ -285,11 +291,12 @@ def main():
     
     # Process results to find the best one
     if results: # Check if results were successfully populated
-        for res_min_confidence, res_current_recall, res_signature_sets in results:
+        for res_min_confidence, res_current_recall, res_signature_sets, res_total_time in results:
             if res_current_recall > best_recall:
                 best_recall = res_current_recall
                 best_confidence = res_min_confidence
                 last_signature_sets = res_signature_sets
+                total_time_per_iteration = res_total_time
     else:
         print("No results from parallel processing. Check for errors.")
 
@@ -318,4 +325,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # Setup basic logging
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
     main()
