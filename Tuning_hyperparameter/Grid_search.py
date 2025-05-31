@@ -9,6 +9,7 @@ best_xmeans_params = best_results['Xmeans']['best_params']  ->  {'max_clusters':
 import numpy as np
 import importlib
 import multiprocessing # Added for parallel processing
+import os # For os.cpu_count()
 from sklearn.model_selection import GridSearchCV
 from itertools import product
 from sklearn.metrics import make_scorer, silhouette_score, davies_bouldin_score, f1_score, accuracy_score
@@ -19,72 +20,107 @@ from utils.class_row import nomal_class_data
 
 # Moved helper for Kmeans parallel processing to top level
 def _evaluate_kmeans_n_init_worker(task_args):
-    X_k, n_clusters_k, parameter_dict_k, n_init_k = task_args
+    # Unpack num_processes_for_algo_local from task_args
+    X_k, n_clusters_k, parameter_dict_k, n_init_k, num_processes_for_algo_local = task_args
+    
+    # Determine n_jobs for KMeans based on num_processes_for_algo_local
+    # If num_processes_for_algo_local is 0, it means use all cores, which can be -1 for n_jobs
+    # If None, can default to 1 or some other logic. For controlled parallelism, assume positive int or 0.
+    n_jobs_for_kmeans = -1 if num_processes_for_algo_local == 0 else num_processes_for_algo_local
+    if num_processes_for_algo_local is None: # Default if None is passed through
+        n_jobs_for_kmeans = 1 
+        
     kmeans = KMeans(
         n_clusters=n_clusters_k,
-        random_state=parameter_dict_k['random_state'],
-        n_init=n_init_k
+        random_state=parameter_dict_k.get('random_state', 42), # Use get for safety
+        n_init=n_init_k,
+        n_jobs=n_jobs_for_kmeans # Pass num_processes_for_algo_local as n_jobs
     )
     labels_k = kmeans.fit_predict(X_k)
-    current_score_k = -1
+    current_score_k = -1.0 # Initialize as float
     if len(set(labels_k)) > 1:
-        current_score_k = silhouette_score(X_k, labels_k)
+        try:
+            current_score_k = silhouette_score(X_k, labels_k)
+        except ValueError: 
+            current_score_k = -1.0 
     return n_init_k, current_score_k
 
 
 # Helper function for Grid_search_all parallel execution
 def _evaluate_param_set_all(param_set_args):
     """Evaluates a single parameter set for Grid_search_all."""
-    # Unpack arguments
-    param_set, clustering_algorithm, param_keys_local, create_model_func, X_local, data_local, default_parameter_dict = param_set_args
+    # Unpack arguments, including num_processes_for_algo
+    param_set, clustering_algorithm, param_keys_local, create_model_func_base, X_local, data_local, default_parameter_dict, num_processes_for_algo_local = param_set_args
 
     if clustering_algorithm == 'NeuralGas':
-        params = param_set
+        params_from_grid = param_set # param_set is already the full dict for NeuralGas
     else:
-        params = dict(zip(param_keys_local, param_set))
+        params_from_grid = dict(zip(param_keys_local, param_set))
     
-    model = create_model_func(params)
-    
-    labels = None
-    score = -1
-    db_score = float('inf')
-    f1 = -1
-    acc = -1
+    model = None
+    try:
+        # create_model_func_base is the specific `create_model_local` (closure) from Grid_search_all
+        model = create_model_func_base(params_from_grid) 
+    except TypeError as te:
+        print(f"[ERROR _evaluate_param_set_all] TypeError creating model for {clustering_algorithm} with grid params {params_from_grid} and num_processes={num_processes_for_algo_local}: {te}")
+        return params_from_grid, -1.0, float('inf'), -1.0, -1.0 # Return default error scores
+    except Exception as e:
+        print(f"[ERROR _evaluate_param_set_all] Exception creating model for {clustering_algorithm} with grid params {params_from_grid}: {e}")
+        return params_from_grid, -1.0, float('inf'), -1.0, -1.0 # Return default error scores
 
+    # Initialize scores - THIS BLOCK IS NOW RESTORED AND MOVED AFTER SUCCESSFUL MODEL CREATION
+    labels = None 
+    score = -1.0 # Silhouette for most, F1 for CANN
+    db_score = float('inf') 
+    f1 = -1.0
+    acc = -1.0
+
+    # Model fitting and scoring - THIS TRY-EXCEPT BLOCK IS NOW RESTORED
     try:
         # print(f"[DEBUG] Worker evaluating: {params} for {clustering_algorithm}") # Optional: worker debug
         if clustering_algorithm in ['CANNwKNN', 'CANN']:
             if data_local is None:
-                # This case should ideally be prevented by the caller or handled gracefully.
-                print(f"[ERROR] Data is None for {clustering_algorithm} but required.")
-                return params, score, db_score, f1, acc # Return default/error scores
-            
-            cluster_labels = model.fit_predict(X_local, data_local)
-            
-            if len(set(cluster_labels)) < 1:
-                return params, score, db_score, f1, acc
-
-            if 'label' in data_local.columns:
-                f1, acc = evaluate_clustering_with_known_benign(
-                    data_local, X_local, cluster_labels, len(set(cluster_labels)), data_local['label']
-                )
-                score = f1 # For CANN, primary score is F1
+                print(f"[ERROR _evaluate_param_set_all] Full 'data' (data_local) is None for {clustering_algorithm} but required for its evaluation logic.")
+                # Scores remain at their default error values, already initialized
+            elif 'label' not in data_local.columns:
+                 print(f"[ERROR _evaluate_param_set_all] 'label' column missing in data_local for {clustering_algorithm} evaluation.")
+            elif len(data_local['label']) != X_local.shape[0]:
+                 print(f"[ERROR _evaluate_param_set_all] Length of 'label' column in data_local does not match X_local for {clustering_algorithm}.")                 
             else:
-                print("[ERROR] 'label' column missing in data_local for CANN/CANNwKNN evaluation.")
-                # score remains -1, db_score inf, f1 -1, acc -1
+                # Assuming CANNwKNN.fit_predict takes X_reduced (X_local) and full data (data_local)
+                # And its internal evaluation or the subsequent evaluate_clustering_with_known_benign handles labels.
+                cluster_labels_fit = model.fit_predict(X_local, data_local) 
+                num_unique_labels = len(set(cluster_labels_fit))
 
-        else: # Other algorithms
-            labels = model.fit_predict(X_local)
-            if len(set(labels)) < 2:
-                return params, score, db_score, f1, acc # score = -1, db_score = inf
-            score, db_score = evaluate_clustering(X_local, labels)
+                if num_unique_labels > 0: # Need at least one cluster 
+                    # Pass aligned original labels (data_local['label']) for evaluation
+                    f1_calc, acc_calc = evaluate_clustering_with_known_benign(
+                        data_local, X_local, cluster_labels_fit, num_unique_labels, data_local['label']
+                    )
+                    score = f1_calc # For CANN, primary score is F1
+                    f1 = f1_calc
+                    acc = acc_calc
+                # else: scores remain at default error values
+
+        else: # Other algorithms (KMeans, DBSCAN, XMeans, GMeans, MShift, NeuralGas)
+            labels_fit = model.fit_predict(X_local)
+            labels = labels_fit # Store for potential debugging
+            if len(set(labels_fit)) < 2: # Silhouette and DB need at least 2 clusters
+                # scores remain at -1.0 and inf (default error values)
+                pass 
+            else:
+                # Calculate silhouette and Davies-Bouldin scores
+                # evaluate_clustering now handles internal ValueErrors for individual metrics
+                current_silhouette, current_db = evaluate_clustering(X_local, labels_fit)
+                score = current_silhouette
+                db_score = current_db
 
     except Exception as e:
-        print(f"Error evaluating params {params} for {clustering_algorithm}: {e}")
-        # Return default/error scores: score = -1, db_score = inf, f1 = -1, acc = -1
+        print(f"[ERROR _evaluate_param_set_all] Error during model fit/evaluation for {clustering_algorithm} with params {params_from_grid}: {e}")
+        # score, db_score, etc., will retain their initialized default error values set before this try block
 
     # print(f"[DEBUG] Worker finished: {params}, score: {score}, db: {db_score}, f1: {f1}, acc: {acc}") # Optional
-    return params, score, db_score, f1, acc
+    return params_from_grid, score, db_score, f1, acc
 
 
 # Dynamic import functions (using importlib)
@@ -93,7 +129,7 @@ def dynamic_import(module_name, class_name):
     return getattr(module, class_name)
 
 
-def Grid_search_Kmeans(X, n_clusters, parameter_dict=None):
+def Grid_search_Kmeans(X, n_clusters, parameter_dict=None, num_processes_for_algo=None): # Added num_processes_for_algo
     # Maintain complete parameter_dict for compatibility
     if parameter_dict is None:
         parameter_dict = {
@@ -111,22 +147,39 @@ def Grid_search_Kmeans(X, n_clusters, parameter_dict=None):
             'max_edge_age': 50,
             'epochs': 300,
             'batch_size': 256,
-            'n_neighbors': 5
+            'n_neighbors': 5,
+            'reg_covar': 1e-6
         }
 
     n_init_values = list(range(2, 102, 3))
-    best_score = -1
+    best_score = -1.0 # Initialize as float
     best_params = None
 
     # Parallelize this loop
     tasks_kmeans = []
-    for n_init in n_init_values:
-        tasks_kmeans.append((X, n_clusters, parameter_dict, n_init))
+    for n_init_val_loop in n_init_values:
+        tasks_kmeans.append((X, n_clusters, parameter_dict, n_init_val_loop, num_processes_for_algo))
 
     if tasks_kmeans:
-        num_processes_kmeans = min(len(tasks_kmeans), multiprocessing.cpu_count())
+        pool_processes_kmeans = 1
+        if num_processes_for_algo == 0:
+            pool_processes_kmeans = os.cpu_count()
+            if pool_processes_kmeans is None: pool_processes_kmeans = 1
+        elif num_processes_for_algo is not None and num_processes_for_algo > 0:
+            pool_processes_kmeans = num_processes_for_algo
+        else: # Default or invalid (e.g. None or negative)
+            cpu_cores_kmeans = os.cpu_count()
+            if cpu_cores_kmeans:
+                pool_processes_kmeans = max(1, cpu_cores_kmeans // 2)
+            else: # Fallback if os.cpu_count() returns None
+                pool_processes_kmeans = max(1, multiprocessing.cpu_count() // 2 if multiprocessing.cpu_count() else 1)
+        
+        pool_processes_kmeans = min(pool_processes_kmeans, len(tasks_kmeans)) 
+        if pool_processes_kmeans == 0 and len(tasks_kmeans) > 0: pool_processes_kmeans = 1
+        
+        print(f"[Grid_search_Kmeans] Using {pool_processes_kmeans} processes for {len(tasks_kmeans)} n_init values (num_processes_for_algo={num_processes_for_algo}).")
         try:
-            with multiprocessing.Pool(processes=num_processes_kmeans) as pool:
+            with multiprocessing.Pool(processes=pool_processes_kmeans) as pool:
                 # Use the top-level worker function
                 results_kmeans = pool.map(_evaluate_kmeans_n_init_worker, tasks_kmeans)
             
@@ -136,12 +189,12 @@ def Grid_search_Kmeans(X, n_clusters, parameter_dict=None):
                     best_params = {'n_init': n_init_res}
         except Exception as e:
             print(f"Error during parallel Kmeans n_init search: {e}. Attempting sequential fallback.")
-            # Fallback to original sequential loop
-            best_score_seq = -1
+            best_score_seq = -1.0
             best_params_seq = None
             print("Performing sequential Kmeans n_init search as fallback...")
             for task_args_seq in tasks_kmeans: # Iterate through the prepared tasks
                 # Call the worker function directly for sequential execution
+                # num_processes_for_algo is already part of task_args_seq
                 n_init_seq, score_seq = _evaluate_kmeans_n_init_worker(task_args_seq)
                 if score_seq > best_score_seq:
                     best_score_seq = score_seq
@@ -159,49 +212,81 @@ def Grid_search_Kmeans(X, n_clusters, parameter_dict=None):
                 print("Warning: Kmeans sequential fallback also failed or produced no valid results.")
             
             if best_params is None:
-                 print("Warning: Kmeans n_init search (parallel and sequential) failed to find best_params. Results might be incomplete.")
+                 print("Warning: Kmeans n_init search (parallel and sequential) failed to find best_params. Defaulting n_init.")
+                 best_params = {'n_init': parameter_dict.get('n_init', 10)} # Default n_init if all fails
 
-    # Merge with complete parameter_dict
+    # Ensure best_params is not None before updating (in case all init values failed)
+    if best_params is None:
+        best_params = {'n_init': parameter_dict.get('n_init', 10)} # Ensure a default n_init
+        print(f"[Grid_search_Kmeans] No best n_init found, defaulting to {best_params['n_init']}")
+        best_score = -1.0 # Reflect that this is not from a successful grid search point
+
     best_param_full = parameter_dict.copy()
-    if best_params:
-        best_param_full.update(best_params)
-
+    best_param_full.update(best_params)
+    best_param_full['silhouette_score_from_n_init_tuning'] = best_score 
     return best_param_full
 
-
-'''
-Grid Search functions for clustering algorithms other than Kmeans
-'''
 
 def evaluate_clustering(X, labels):
     """Functions to evaluate clustering performance (Silhouette Score & Davies-Bouldin Score)"""
     if len(set(labels)) < 2:
-        return -1, float('inf')  # Returning an invalid score if there is only one cluster
+        return -1.0, float('inf') 
     
-    sil_score = silhouette_score(X, labels)
-    db_score = davies_bouldin_score(X, labels)
-    return sil_score, db_score
+    sil_score = -1.0
+    db_score_val = float('inf')
+    try:
+        sil_score = silhouette_score(X, labels)
+    except ValueError:
+        # print(f"[WARN evaluate_clustering] Silhouette score calculation failed for labels: {np.unique(labels, return_counts=True)}")
+        pass # sil_score remains -1.0
+    try:
+        db_score_val = davies_bouldin_score(X, labels)
+    except ValueError:
+        # print(f"[WARN evaluate_clustering] Davies-Bouldin score calculation failed for labels: {np.unique(labels, return_counts=True)}")
+        pass # db_score_val remains inf
+    return sil_score, db_score_val
 
 
-# Discriminate Functions for CANNwKNN
-def evaluate_clustering_with_known_benign(data, X, clusters, num_clusters, aligned_original_labels):
-    # 0: benign, 1: attack (criteria: same as clustering_nomal_identify)
-    benign_data = nomal_class_data(data).to_numpy() # Assuming that we only know benign data
+def evaluate_clustering_with_known_benign(data_orig_df, X_reduced_features, model_assigned_labels, num_model_clusters, original_labels_aligned_with_X):
+    """Evaluate clustering using F1 and Accuracy after CNI-like processing."""
+    # Ensure original_labels_aligned_with_X is a 1D array
+    if original_labels_aligned_with_X.ndim > 1:
+         original_labels_aligned_with_X = original_labels_aligned_with_X.squeeze()
 
-    inferred_labels = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters)
+    # Call CNI to get 0/1 labels (0 for normal-like, 1 for anomalous-like)
+    # CNI requires features used for clustering (X_reduced_features), original true labels (original_labels_aligned_with_X),
+    # model assigned cluster IDs (model_assigned_labels), and the number of clusters from the model.
+    # global_known_normal_samples_pca for CNI will be handled by its internal fallback if not provided, 
+    # using original_labels_aligned_with_X to find known normals in the current data slice.
+    inferred_cni_labels = clustering_nomal_identify(
+        data_features_for_clustering=X_reduced_features, 
+        original_labels_aligned=original_labels_aligned_with_X, 
+        clusters_assigned=model_assigned_labels, 
+        num_total_clusters=num_model_clusters
+        # num_processes_for_algo could be passed to CNI if CNI is modified to use it for its pool
+    )
 
-    # Create ground truth about where my benigns are
-    ground_truth = np.ones(len(data))  # The default is attack(1)
-    benign_idx = data.index.isin(benign_data.index)
-    ground_truth[benign_idx] = 0
+    # Ground truth is the original_labels_aligned_with_X (0 for benign/normal, 1 for attack/anomalous)
+    ground_truth = original_labels_aligned_with_X
 
-    f1 = f1_score(ground_truth, inferred_labels)
-    acc = accuracy_score(ground_truth, inferred_labels)
+    f1 = -1.0
+    acc = -1.0
+    try:
+        # Ensure both arrays are 1D and have compatible types for metric functions
+        if ground_truth.ndim == 1 and inferred_cni_labels.ndim == 1 and len(ground_truth) == len(inferred_cni_labels):
+            f1 = f1_score(ground_truth, inferred_cni_labels, zero_division=0)
+            acc = accuracy_score(ground_truth, inferred_cni_labels)
+        else:
+            print(f"[WARN evaluate_clustering_with_known_benign] Ground truth or CNI labels are not 1D or have mismatched lengths.")
+            print(f"  GT shape: {ground_truth.shape}, CNI labels shape: {inferred_cni_labels.shape}")
+    except ValueError as e_metrics:
+        print(f"[WARN evaluate_clustering_with_known_benign] ValueError during F1/Acc calculation: {e_metrics}")
+        # f1, acc remain -1.0
+        
     return f1, acc
 
-# THIS IS THE RESTORED Grid_search_all FUNCTION
-def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
-    # Maintain complete parameter_dict for compatibility
+
+def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None, num_processes_for_algo=None): 
     if parameter_dict is None:
         parameter_dict = {
             'random_state': 42,
@@ -218,203 +303,285 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None):
             'max_edge_age': 50,
             'epochs': 300,
             'batch_size': 256,
-            'n_neighbors': 5
+            'n_neighbors': 5,
+            'reg_covar': 1e-6
         }
+    else: # Ensure essential keys exist if parameter_dict is provided
+        defaults_for_safety = {
+            'random_state': 42, 'n_init': 10, 'max_clusters': 100, 'tol': 1e-4,
+            'eps': 0.5, 'count_samples': 5, 'quantile': 0.2, 'n_samples': 200,
+            'n_start_nodes': 2, 'max_nodes': 30, 'step': 0.2, 'max_edge_age': 30,
+            'epochs': 100, 'batch_size': 128, 'n_neighbors': 5, 'reg_covar': 1e-6
+        }
+        for key, val in defaults_for_safety.items():
+            parameter_dict.setdefault(key, val)
 
-    best_results = {}  # Dictionary for storing the best result of each algorithm
-
-    print(f"\n{clustering_algorithm} Performing clustering...")
+    best_results_for_algo = {} 
+    print(f"\\n{clustering_algorithm} Performing clustering grid search...")
 
     param_grid = {}
-    create_model = None # Renamed from create_model_func for original consistency
-    param_combinations = [] # For NeuralGas, this will be a list of dicts
+    create_model = None 
+    param_combinations = [] 
+    param_keys = [] # Initialize param_keys here
 
     # START: Algorithm-specific param_grid and create_model setup
     if clustering_algorithm in ['Xmeans', 'xmeans']:
         XMeansWrapper = dynamic_import("Clustering_Method.clustering_Xmeans", "XMeansWrapper")
-        param_grid = {'max_clusters': list(range(2, 31, 3))}
-        def create_model_local(params_local):
-            model_params = { 'random_state': parameter_dict['random_state'], **params_local }
-            return XMeansWrapper(**model_params)
+        param_grid = {'max_clusters': list(range(2, 31, 3))} # Adjusted range
+        def create_model_local(params_local_grid): 
+            model_constructor_params = { 
+                'random_state': parameter_dict.get('random_state', 42), 
+                'n_init': parameter_dict.get('n_init',10), # XMeansWrapper uses n_init for internal KMeans
+                **params_local_grid, 
+                'num_processes_for_algo': num_processes_for_algo 
+            }
+            return XMeansWrapper(**model_constructor_params)
         create_model = create_model_local
 
     elif clustering_algorithm in ['Gmeans', 'gmeans']:
         GMeans = dynamic_import("Clustering_Method.clustering_Gmeans", "GMeans")
-        log_range = np.logspace(-6, -1, num=10)
-        lin_range = np.linspace(min(log_range), max(log_range), num=10)
-        combined_range = np.unique(np.concatenate((log_range, lin_range)))
-        param_grid = {'max_clusters': list(range(2, 31, 3)), 'tol': combined_range}
-        def create_model_local(params_local):
-            model_params = { 'random_state': parameter_dict['random_state'], **params_local }
-            return GMeans(**model_params)
-        create_model = create_model_local
-
-    elif clustering_algorithm == 'DBSCAN':
-        param_grid = {'eps': np.arange(0.1, 1, 0.02), 'min_samples': list(range(3, 20, 2))}
-        def create_model_local(params_local):
-            return DBSCAN(**params_local)
+        log_range = np.logspace(-6, -1, num=10) # Adjusted range
+        # lin_range = np.linspace(min(log_range), max(log_range), num=3) # Simplified
+        # combined_range = sorted(list(set(np.concatenate((log_range, lin_range)))))
+        param_grid = {'max_clusters': list(range(2, 31, 3)), 'tol': log_range} # Adjusted range
+        def create_model_local(params_local_grid):
+            model_constructor_params = { 
+                'random_state': parameter_dict.get('random_state', 42), 
+                'n_init': parameter_dict.get('n_init',10), # GMeans uses n_init for internal KMeans
+                **params_local_grid, 
+                'num_processes_for_algo': num_processes_for_algo 
+            }
+            return GMeans(**model_constructor_params)
         create_model = create_model_local
     
+    elif clustering_algorithm == 'DBSCAN':
+        param_grid = {'eps': np.arange(0.1, 2.1, 0.05), 'min_samples': list(range(2, 20, 2))}
+        def create_model_local(params_local_grid):
+            n_jobs_for_dbscan = -1 if num_processes_for_algo == 0 else num_processes_for_algo
+            if num_processes_for_algo is None: n_jobs_for_dbscan = 1
+            model_constructor_params = {
+                **params_local_grid,
+                'n_jobs': n_jobs_for_dbscan
+            }
+            return DBSCAN(**model_constructor_params)
+        create_model = create_model_local 
+
     elif clustering_algorithm == 'MShift':
         MeanShiftWithDynamicBandwidth = dynamic_import("Clustering_Method.clustering_MShift", "MeanShiftWithDynamicBandwidth")
-        param_grid = {'quantile': np.arange(0.01, 0.31, 0.05), 'n_samples': list(range(50, 210, 30))}
-        def create_model_local(params_local):
-            return MeanShiftWithDynamicBandwidth(**params_local)
+        param_grid = {'quantile': np.arange(0.05, 0.51, 0.05), 'n_samples': list(range(50, 501, 30))}
+        def create_model_local(params_local_grid):
+            model_constructor_params = {
+                **params_local_grid, 
+                'num_processes_for_algo': num_processes_for_algo
+            }
+            return MeanShiftWithDynamicBandwidth(**model_constructor_params)
         create_model = create_model_local
 
     elif clustering_algorithm == 'NeuralGas':
         NeuralGasWithParams = dynamic_import("Clustering_Method.clustering_NeuralGas", "NeuralGasWithParams")
-        '''
-        param_grid = {'n_start_nodes': [2, 5, 7, 10, 15, 20, 35, 50], 'max_nodes': list(range(50, 501, 50)),
-                        'step': np.arange(0.05, 0.51, 0.05), 'max_edge_age': list(range(50, 301, 30))}
-        def create_model(params):
-            return NeuralGasWithParams(**params)
-        '''
-        # Automatically calculate reasonable ranges based on data counts
-        n = len(X)
-        estimated_nodes = int(np.sqrt(n))
-        max_nodes_list = [int(0.5 * estimated_nodes), estimated_nodes, int(1.5 * estimated_nodes)]
-        max_nodes_list = [m for m in max_nodes_list if m >= 10]
-        if not max_nodes_list: max_nodes_list = [10]
-        edge_age_list_func = lambda m: [int(0.5 * m), m, int(1.5 * m)]
-        
-        param_combinations_list_of_dicts = [] 
-        for start_nodes in [2, 5, 10]:
-            for max_nodes_val in max_nodes_list:
-                for edge_age in edge_age_list_func(max_nodes_val):
-                    for step_val in [0.1, 0.2, 0.3]:
-                        param_combinations_list_of_dicts.append({
-                            'n_start_nodes': start_nodes,
-                            'max_nodes': max_nodes_val,
+        param_combinations = []
+        n = X.shape[0]
+        estimated_nodes = int(np.sqrt(n / 2)) 
+        if estimated_nodes < 5: estimated_nodes = 5 
+
+        max_nodes_candidates = sorted(list(set([
+            max(5, int(estimated_nodes * 0.5)),
+            max(5, estimated_nodes),
+            max(5, int(estimated_nodes * 1.5)),
+            max(5, int(estimated_nodes * 2.0)), # Added another larger candidate
+            20, 50 # Include some fixed common values
+        ])))
+        # Ensure max_nodes are not excessively large for very small n, or cap them.
+        # Max nodes should ideally not exceed n.
+        max_nodes_candidates = [mn for mn in max_nodes_candidates if mn <= n and mn >=2]
+        if not max_nodes_candidates: max_nodes_candidates = [min(max(n,2), 20)] # Fallback if all filters out
+
+        # Define candidates for other parameters
+        n_start_nodes_candidates = [2, 3]
+        step_candidates = [0.1, 0.2, 0.3]
+        # max_edge_age will be relative to max_nodes
+
+        for mn_val in max_nodes_candidates:
+            for ns_val in n_start_nodes_candidates:
+                if ns_val >= mn_val : continue # n_start_nodes should be less than max_nodes
+                for step_val in step_candidates:
+                    # Generate max_edge_age candidates based on current mn_val
+                    # Ensure max_edge_age is reasonable (e.g., not too small, not excessively large)
+                    mea_candidates = sorted(list(set([
+                        max(10, int(mn_val * 0.5)), 
+                        max(10, mn_val), 
+                        max(10, int(mn_val * 1.5))
+                    ])))
+                    for mea_val in mea_candidates:
+                        current_params = {
+                            'n_start_nodes': ns_val,
+                            'max_nodes': mn_val,
                             'step': step_val,
-                            'max_edge_age': edge_age
-                        })
-        param_combinations = param_combinations_list_of_dicts # This is a list of dicts for NeuralGas
-        def create_model_local(params_local):
-            return NeuralGasWithParams(**params_local)
+                            'max_edge_age': mea_val,
+                            'num_processes_for_algo': num_processes_for_algo # Add num_processes_for_algo
+                        }
+                        param_combinations.append(current_params)
+        
+        if not param_combinations: # Fallback if no combinations were generated
+            print("[Warning Grid_search_all NeuralGas] No dynamic params generated, using a default set.")
+            raw_param_sets = [
+                {'n_start_nodes': 2, 'max_nodes': min(max(n,2), 50), 'step': 0.2, 'max_edge_age': 50},
+                {'n_start_nodes': 2, 'max_nodes': min(max(n,2), 20), 'step': 0.1, 'max_edge_age': 30}
+            ]
+            param_combinations = [{**ps, 'num_processes_for_algo': num_processes_for_algo} for ps in raw_param_sets]
+
+        def create_model_local(params_local_grid_dict): 
+            return NeuralGasWithParams(**params_local_grid_dict) 
         create_model = create_model_local
+        param_keys = [] # Already initialized, but good to be clear it's not used like others here
 
     elif clustering_algorithm in ['CANNwKNN', 'CANN']:
-        CANNWithKNN = dynamic_import("Clustering_Method.clustering_CANNwKNN", "CANNWithKNN")
-        param_grid = {'epochs': list(range(20, 501, 20)), 'batch_size': list(range(32, 257, 32)), 
-                        'n_neighbors': list(range(3, 51, 5))}
-        input_shape_val = X.shape[1]
-        def create_model_local(params_local):
-            model_params = { 'input_shape': input_shape_val, **params_local }
-            return CANNWithKNN(**model_params)
+        CANNwKNN = dynamic_import("Clustering_Method.clustering_CANNwKNN", "CANNwKNN")
+        param_grid = {
+            'epochs': [100, 200, 300],
+            'batch_size': [128, 256, 512],
+            'n_neighbors': [3, 5, 7]
+        }
+        def create_model_local(params_local_grid):
+            model_constructor_params = {
+                **params_local_grid, 
+                'num_processes_for_algo': num_processes_for_algo # Pass if CANNwKNN handles it
+            }
+            return CANNwKNN(**model_constructor_params)
         create_model = create_model_local
-    else:
-        print(f"Unsupported algorithm: {clustering_algorithm}")
-        return parameter_dict 
-    # END: Algorithm-specific param_grid and create_model setup
+    
+    # The redundant 'elif clustering_algorithm == KMeans' block that defined create_model_local for KMeans HAS BEEN REMOVED.
+    # KMeans is handled by the special section below.
 
-    # START: Common worker_tasks preparation
-    worker_tasks = []
-    param_keys_for_worker = [] # Should be defined before use if not NeuralGas
+    else: 
+        # This 'else' is now for algorithms NOT KMeans and NOT explicitly configured above.
+        # This case should ideally not be hit if Data_Labeling calls Grid_search_all only for algos defined here or KMeans.
+        print(f"Clustering algorithm '{clustering_algorithm}' is not KMeans and not explicitly configured for param_grid in Grid_search_all. Using default parameters.")
+        return {
+            'best_params': {}, # No grid params tuned
+            'all_params': parameter_dict.copy(), # Return the initial full dict
+            'silhouette_score_from_grid': -1.0,
+            'davies_bouldin_score_from_grid': float('inf'),
+            'f1_score_from_grid': -1.0,
+            'accuracy_score_from_grid': -1.0
+        }
 
+    # Generate param_combinations from param_grid if not NeuralGas (which creates it directly)
     if clustering_algorithm != 'NeuralGas':
-        if not param_grid: # Should not happen if algorithm is supported
-            print(f"Error: param_grid not set for {clustering_algorithm}")
-            return parameter_dict
-        param_keys_for_worker = list(param_grid.keys())
-        param_value_tuples = list(product(*param_grid.values()))
-        for param_set_tuple in param_value_tuples:
-            worker_tasks.append((param_set_tuple, clustering_algorithm, param_keys_for_worker, create_model, X, data, parameter_dict))
-    else: # NeuralGas: param_combinations is already list of dicts
-        if not param_combinations: # param_combinations should be a list of dicts from above
-            print(f"Error: param_combinations (list of dicts) not set for NeuralGas")
-            return parameter_dict
-        for param_set_dict in param_combinations: 
-            # For NeuralGas, _evaluate_param_set_all uses param_set_dict directly. param_keys_for_worker can be empty.
-            worker_tasks.append((param_set_dict, clustering_algorithm, [], create_model, X, data, parameter_dict))
-    # END: Common worker_tasks preparation
+        if not param_grid: 
+             print(f"[Warning Grid_search_all] param_grid is empty for {clustering_algorithm} (and it's not NeuralGas or KMeans). No combinations to test.")
+             param_combinations = [] 
+        else:
+            param_keys = list(param_grid.keys())
+            param_values = list(param_grid.values())
+            param_combinations = list(product(*param_values))
 
-    # START: Common variables for result tracking
-    current_best_score = -1
-    current_best_db_score = float('inf')
-    current_best_f1 = -1 
-    current_best_acc = -1 
-    current_best_params = None
-    all_param_results = [] # Results from parallel or sequential execution
-    # END: Common variables for result tracking 
+    if not param_combinations and clustering_algorithm != 'Kmeans':
+        print(f"No parameter combinations to evaluate for {clustering_algorithm} after processing param_grid. Returning defaults.")
+        return {
+            'best_params': {}, # No grid params tuned
+            'all_params': parameter_dict.copy(),
+            'silhouette_score_from_grid': -1.0,
+            'davies_bouldin_score_from_grid': float('inf'),
+            'f1_score_from_grid': -1.0,
+            'accuracy_score_from_grid': -1.0
+        }
 
-    # START: Common parallel execution with fallback
-    if worker_tasks:
-        num_processes_all = min(len(worker_tasks), multiprocessing.cpu_count())
-        print(f"[Grid_search_all] Using {num_processes_all} processes for {clustering_algorithm} with {len(worker_tasks)} param combinations.")
+    # Special handling for KMeans: call Grid_search_Kmeans for n_init tuning.
+    if clustering_algorithm == 'Kmeans':
+        # n_clusters should be determined before this, e.g., by Elbow method, and be in parameter_dict.
+        n_clusters_for_kmeans = parameter_dict.get('n_clusters', X.shape[0] // 100 if X.shape[0] > 200 else max(2, X.shape[0] // 2 if X.shape[0] > 3 else 2)) 
+        if n_clusters_for_kmeans < 2: n_clusters_for_kmeans = 2
+        
+        # n_jobs_final_kmeans is not strictly needed here as Grid_search_Kmeans handles n_jobs for its KMeans runs.
+        # The result from Grid_search_Kmeans will contain the best n_init and its corresponding silhouette.
+        print(f"Running Grid_search_Kmeans for n_init tuning with n_clusters={n_clusters_for_kmeans}...")
+        best_param_full_kmeans = Grid_search_Kmeans(X, n_clusters_for_kmeans, parameter_dict.copy(), num_processes_for_algo=num_processes_for_algo)
+        
+        final_kmeans_score = best_param_full_kmeans.get('silhouette_score_from_n_init_tuning', -1.0)
+        # Davies-Bouldin is not calculated by Grid_search_Kmeans currently.
+        # If needed, a separate run of KMeans with best n_init would be required here.
+        final_db_score = float('inf') 
+
+        best_results_for_algo = {
+            'best_params': {'n_init': best_param_full_kmeans.get('n_init')}, # Only n_init is tuned here
+            'all_params': best_param_full_kmeans, 
+            'silhouette_score_from_grid': final_kmeans_score,
+            'davies_bouldin_score_from_grid': final_db_score, 
+            'f1_score_from_grid': -1.0, 
+            'accuracy_score_from_grid': -1.0
+        }
+        return best_results_for_algo
+
+    # --- Common parallel execution for algorithms OTHER THAN KMeans ---
+    best_score_algo = -1.0
+    best_params_algo = None 
+    best_db_score_algo = float('inf')
+    best_f1_algo = -1.0
+    best_acc_algo = -1.0
+
+    tasks_all = []
+    for param_set_item in param_combinations:
+        tasks_all.append((param_set_item, clustering_algorithm, param_keys, create_model, X, data, parameter_dict.copy(), num_processes_for_algo))
+
+    if tasks_all:
+        pool_processes_all = 1 # Default to 1 if logic below fails or num_processes_for_algo is None/invalid
+        if num_processes_for_algo == 0:
+            pool_processes_all = os.cpu_count()
+            if pool_processes_all is None: pool_processes_all = 1
+        elif num_processes_for_algo is not None and num_processes_for_algo > 0:
+            pool_processes_all = num_processes_for_algo
+        else: 
+            cpu_cores_all = os.cpu_count()
+            if cpu_cores_all:
+                pool_processes_all = max(1, cpu_cores_all // 2)
+            else:
+                pool_processes_all = max(1, multiprocessing.cpu_count() // 2 if multiprocessing.cpu_count() else 1)
+
+        pool_processes_all = min(pool_processes_all, len(tasks_all)) 
+        if pool_processes_all <= 0 and len(tasks_all) > 0: pool_processes_all = 1 # Ensure at least 1 if tasks exist
+        
+        print(f"[Grid_search_all] Algorithm: {clustering_algorithm}. Using {pool_processes_all} processes for {len(tasks_all)} param combinations (num_processes_for_algo={num_processes_for_algo}).")
         
         try:
-            # Attempt parallel execution
-            with multiprocessing.Pool(processes=num_processes_all) as pool:
-                all_param_results = pool.map(_evaluate_param_set_all, worker_tasks)
-        except Exception as e:
-            # Parallel execution failed, attempt sequential fallback
-            print(f"Error during parallel Grid_search_all for {clustering_algorithm}: {e}. Attempting sequential fallback.")
-            all_param_results = [] # Clear any partial results from failed parallel attempt
-            for task_args_seq in worker_tasks:
-                all_param_results.append(_evaluate_param_set_all(task_args_seq))
+            with multiprocessing.Pool(processes=pool_processes_all) as pool:
+                results_all = pool.map(_evaluate_param_set_all, tasks_all)
             
-            if not all_param_results or all(res[1] == -1 and (clustering_algorithm not in ['CANNwKNN', 'CANN'] or res[3] == -1) for res in all_param_results):
-                print(f"Warning: Sequential fallback for {clustering_algorithm} also failed or produced no valid results.")
-            elif all_param_results: 
-                print(f"Sequential fallback for {clustering_algorithm} provided results.")
-    else:
-        print(f"No parameter combinations to evaluate for {clustering_algorithm}.")
-    # END: Common parallel execution with fallback
-
-    # START: Common result processing
-    for presult_params, presult_score, presult_db_score, presult_f1, presult_acc in all_param_results:
-        if clustering_algorithm in ['CANNwKNN', 'CANN']:
-            if presult_f1 > current_best_f1:
-                current_best_f1 = presult_f1
-                current_best_acc = presult_acc
-                current_best_params = presult_params
-        else: # Other algorithms use Silhouette score (presult_score)
-            if presult_score > current_best_score:
-                current_best_score = presult_score
-                current_best_db_score = presult_db_score
-                current_best_params = presult_params
-    # END: Common result processing
-
-    # START: Common result storage and return
-    if current_best_params is not None:
-        best_results_for_current_algo = {
-            'best_params': current_best_params,
-            'all_params': parameter_dict, # Keep full original dict for reference
-        }
-        if clustering_algorithm in ['CANNwKNN', 'CANN']:
-            best_results_for_current_algo['f1_score'] = current_best_f1
-            best_results_for_current_algo['accuracy'] = current_best_acc
-            best_results_for_current_algo['silhouette_score'] = -1 # Not primary
-            best_results_for_current_algo['davies_bouldin_score'] = float('inf') # Not primary
-        else:
-            best_results_for_current_algo['silhouette_score'] = current_best_score
-            best_results_for_current_algo['davies_bouldin_score'] = current_best_db_score
-        best_results[clustering_algorithm] = best_results_for_current_algo # Store in the main dict
-    else:
-        print(f"Warning: {clustering_algorithm} search failed to find best_params.")
-        # Ensure a default entry in best_results for this algorithm to prevent key errors later
-        best_results[clustering_algorithm] = {
-            'best_params': {},
-            'all_params': parameter_dict,
-            'silhouette_score': -1,
-            'davies_bouldin_score': float('inf')
-        }
-        if clustering_algorithm in ['CANNwKNN', 'CANN']:
-            best_results[clustering_algorithm]['f1_score'] = -1
-            best_results[clustering_algorithm]['accuracy'] = -1
-
-    # Final return logic based on Autotune's expectation
-    if best_results.get(clustering_algorithm) and best_results[clustering_algorithm].get('best_params'):
-        final_param_dict = parameter_dict.copy()
-        final_param_dict.update(best_results[clustering_algorithm]['best_params'])
+            for params_res, score_res, db_score_res, f1_res, acc_res in results_all:
+                current_primary_score = f1_res if clustering_algorithm in ['CANNwKNN', 'CANN'] else score_res
+                
+                if current_primary_score > best_score_algo: 
+                    best_score_algo = current_primary_score
+                    best_params_algo = params_res
+                    best_db_score_algo = db_score_res
+                    best_f1_algo = f1_res
+                    best_acc_algo = acc_res
+                elif abs(current_primary_score - best_score_algo) < 1e-9 and db_score_res < best_db_score_algo : # Tie-breaking with DB score (use tolerance for float comparison)
+                    best_params_algo = params_res 
+                    best_db_score_algo = db_score_res
+                    best_f1_algo = f1_res 
+                    best_acc_algo = acc_res
         
-        final_param_dict['silhouette_score_from_grid'] = best_results[clustering_algorithm].get('silhouette_score', -1)
-        final_param_dict['davies_bouldin_score_from_grid'] = best_results[clustering_algorithm].get('davies_bouldin_score', float('inf'))
-        if clustering_algorithm in ['CANNwKNN', 'CANN']:
-             final_param_dict['f1_score_from_grid'] = best_results[clustering_algorithm].get('f1_score', -1)
-             final_param_dict['accuracy_from_grid'] = best_results[clustering_algorithm].get('accuracy', -1)
-        return final_param_dict
-    else:
-        print(f"Returning original parameter_dict for {clustering_algorithm} as grid search failed or no valid best_params were found.")
-        return parameter_dict
+        except Exception as e_pool_all:
+            print(f"[ERROR Grid_search_all] Error during parallel processing for {clustering_algorithm}: {e_pool_all}. Returning default params.")
+            # best_params_algo will be None, leading to fallback below.
+            pass # Let it fall through to the None check for best_params_algo
+
+    # Construct the final parameter dictionary for the algorithm
+    final_algo_parameter_dict = parameter_dict.copy()
+    if best_params_algo is not None:
+        final_algo_parameter_dict.update(best_params_algo)
+    else: 
+        print(f"[Warning Grid_search_all] For {clustering_algorithm}, no best parameters found from grid. Using initial/default parameters.")
+        # best_params_algo remains None, scores remain at their default error values.
+
+    best_results_for_algo = {
+        'best_params': best_params_algo if best_params_algo is not None else {}, 
+        'all_params': final_algo_parameter_dict, 
+        'silhouette_score_from_grid': best_score_algo if clustering_algorithm not in ['CANNwKNN', 'CANN'] else -1.0,
+        'davies_bouldin_score_from_grid': best_db_score_algo,
+        'f1_score_from_grid': best_f1_algo if clustering_algorithm in ['CANNwKNN', 'CANN'] else -1.0,
+        'accuracy_score_from_grid': best_acc_algo if clustering_algorithm in ['CANNwKNN', 'CANN'] else -1.0
+    }
+
+    return best_results_for_algo

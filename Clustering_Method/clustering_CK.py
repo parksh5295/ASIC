@@ -8,10 +8,12 @@ from utils.progressing_bar import progress_bar
 from Tuning_hyperparameter.Elbow_method import Elbow_method
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 from sklearn.metrics import silhouette_score
+import multiprocessing # For Pool
+import itertools # For product
 
 
 # Gustafson-Kessel Clustering Implementation
-def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5): # Fix. Origin; error=0.005, maxiter=1000
+def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5, random_state_seed=None): # Added random_state_seed
     """
     Gustafson-Kessel Clustering Algorithm.
     
@@ -25,7 +27,11 @@ def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5): # Fix. O
         error: float
             Stopping criterion threshold (default=0.005).
         maxiter: int
-            Maximum number of iterations (default=1000).
+            Maximum number of iterations (default=500).
+        epsilon_scale: float
+            Scale of epsilon added to the diagonal, relative to mean of diagonal.
+        random_state_seed: int or None
+            Seed for random number generation.
             
     Returns:
         cntr: ndarray
@@ -37,6 +43,9 @@ def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5): # Fix. O
         fpc: float
             Final fuzzy partition coefficient.
     """
+    if random_state_seed is not None:
+        np.random.seed(random_state_seed) # Set seed for this specific call if provided
+        
     n_samples, n_features = X.shape
     u = np.random.dirichlet(np.ones(c), size=n_samples).T  # Random initialization of membership matrix
 
@@ -50,17 +59,26 @@ def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5): # Fix. O
     d = np.zeros((c, n_samples))
 
     for iteration in range(maxiter):
-        # Calculate cluster centers
-        cntr = np.dot(um, X) / um.sum(axis=1, keepdims=True)
+        cntr_old = cntr.copy() # For convergence check if needed, or u comparison is enough
+        u_old = u.copy()
 
-        # Update covariance matrices
+        cntr = np.dot(um, X) / np.fmax(um.sum(axis=1, keepdims=True), np.finfo(np.float64).eps) # Avoid div by zero
+
         for i in range(c):
             diff = X - cntr[i]
-            cov = np.dot((um[i][:, np.newaxis] * diff).T, diff) / um[i].sum()
-
-            # Normalize by determinant
+            cov_sum_um_i = um[i].sum()
+            if cov_sum_um_i == 0: # Avoid division by zero if a cluster is empty
+                # Option 1: Keep previous cov_matrix (or re-initialize)
+                # cov_matrices[i] = np.eye(n_features) # Re-initialize
+                # Option 2: Skip update for this cluster (might lead to issues if it stays empty)
+                # print(f"[WARN ck_cluster] Cluster {i} is empty. Skipping covariance update.")
+                # For now, let's try re-initializing, but this needs careful thought
+                cov_matrices[i] = np.eye(n_features) * epsilon_scale # Small regularized identity
+                continue 
+                
+            cov = np.dot((um[i][:, np.newaxis] * diff).T, diff) / cov_sum_um_i
             det = np.linalg.det(cov)
-            if not np.isfinite(det) or det <= 0:    # Exception handling
+            if not np.isfinite(det) or det <= 0:
                 det = np.finfo(float).eps
             cov /= det ** (1 / n_features)
 
@@ -78,30 +96,117 @@ def ck_cluster(X, c, m=2, error=0.01, maxiter=500, epsilon_scale=1e-5): # Fix. O
         # Calculate distances and update membership
         for i in range(c):
             diff = X - cntr[i]
-            
             try:
                 inv_cov = np.linalg.inv(cov_matrices[i])
             except np.linalg.LinAlgError:
-                print(f"[WARNING] Singular matrix at cluster {i}, using pseudo-inverse.")
+                # print(f"[WARNING ck_cluster] Singular matrix at cluster {i} for inv, using pseudo-inverse.")
                 inv_cov = np.linalg.pinv(cov_matrices[i])
 
             val = np.sum(np.dot(diff, inv_cov) * diff, axis=1)
             val = np.clip(val, 0, None) # Prevent negative numbers before SQRT
             d[i] = np.sqrt(val)
 
-        d = np.fmax(d, np.finfo(np.float64).eps)  # Avoid division by zero
+        d_clipped = np.fmax(d, np.finfo(np.float64).eps)
         
-        ratio = d / d[:, np.newaxis]
-        ratio = np.clip(ratio, np.finfo(np.float64).eps, 1e10)  # Preventing very small to too large numbers
-        u_new = 1.0 / np.sum(ratio ** (2 / (m - 1)), axis=0)
+        # Check if any column in d_clipped is all zeros (or very small) which means a point is equidistant (or nearly) to all centers with distance 0
+        # This can happen if a point is exactly at a center and all cov_matrices are identity for example.
+        if np.any(np.all(d_clipped < np.finfo(np.float64).eps, axis=0)):
+            # print("[WARN ck_cluster] At least one point has zero distance to all clusters. Handling u_new calculation.")
+            # Handle this case to prevent division by zero in u_new calculation for such points
+            # For points with all zero distances, assign equal membership or to the first cluster.
+            # This is a rare edge case.
+            pass # Let u_new calculation proceed, 1.0/np.sum(...) might handle it if d_clipped is non-zero due to fmax
 
-        # Check for convergence
-        if np.linalg.norm(u_new - u) < error:
+        # u_new calculation - careful with d_power term if m=1 (though m is usually >1)
+        if m == 1:
+            # Hard clustering: assign to closest cluster
+            u_new = np.zeros_like(d_clipped)
+            closest_cluster_indices = np.argmin(d_clipped, axis=0)
+            u_new[closest_cluster_indices, np.arange(n_samples)] = 1.0
+        else:
+            dist_power = 2. / (m - 1.)
+            # Add small epsilon to d_clipped in denominator to prevent issues if any d_clipped is exactly zero after fmax
+            # This is less likely due to fmax but as a safeguard.
+            # However, np.sum might become zero if all distances for a point are huge, leading to 1.0/0
+            # The previous d_clipped = np.fmax(d, np.finfo(np.float64).eps) should handle most zero issues for individual distances
+            temp_dist = d_clipped ** (-dist_power) # (c, n_samples)
+            sum_temp_dist = np.sum(temp_dist, axis=0, keepdims=True) # (1, n_samples)
+            u_new = temp_dist / np.fmax(sum_temp_dist, np.finfo(np.float64).eps) # Avoid division by zero if sum_temp_dist is zero
+            u_new = np.fmax(u_new, np.finfo(np.float64).eps) # Ensure u_new is not zero, which could make um zero
+
+        if np.linalg.norm(u_new - u_old) < error:
+            u = u_new # Update u to the latest before breaking
             break
         u = u_new
+        um = u ** m
 
-    fpc = np.sum(u ** m) / n_samples
+    fpc = np.sum(u ** 2) / n_samples # Standard FPC uses u**2, not u**m for m != 2
     return cntr, u, d, fpc, cov_matrices
+
+
+def _ck_cluster_worker_args(args_tuple):
+    # Unpack arguments and call the original ck_cluster or a slightly modified one if needed
+    X_data, c_val, m_val, error_val, maxiter_val, epsilon_val, random_s_seed = args_tuple
+    # Call ck_cluster with the random seed for this specific run
+    cntr, u, d, fpc, cov_matrices = ck_cluster(X_data, c_val, m_val, error_val, maxiter_val, epsilon_val, random_state_seed=random_s_seed)
+    
+    if u is not None and u.shape[1] > 0: # Check if u is valid and has samples
+        labels = np.argmax(u, axis=0)
+        if len(np.unique(labels)) >= 2 and len(labels) >=2 : # Silhouette score needs at least 2 labels and 2 samples
+            try:
+                score = silhouette_score(X_data, labels)
+                return score, cntr, u, d, fpc, cov_matrices, epsilon_val
+            except ValueError:
+                 # print(f"[WARN _ck_cluster_worker_args] Silhouette score failed for eps={epsilon_val}, seed={random_s_seed}. Not enough unique labels or samples.")
+                 return -1.0, cntr, u, d, fpc, cov_matrices, epsilon_val # Return params even on score fail
+        else:
+            # print(f"[WARN _ck_cluster_worker_args] Not enough unique labels for Silhouette score. Eps={epsilon_val}, Seed={random_s_seed}, UniqueLabels={np.unique(labels)}")
+            return -1.0, cntr, u, d, fpc, cov_matrices, epsilon_val # Return params with bad score
+    # print(f"[WARN _ck_cluster_worker_args] u is None or empty. Eps={epsilon_val}, Seed={random_s_seed}")
+    return -1.0, None, None, None, None, None, epsilon_val
+
+
+def tune_epsilon_for_ck(X, c, epsilon_candidates=[1e-7, 1e-6, 1e-5, 1e-4], n_init=1, m=2, error=0.01, maxiter=500, num_processes_for_algo=1):
+    best_score = -float('inf')
+    best_params_tuple = (None, None, None, None, None, None) # cntr, u, d, fpc, cov_matrices, epsilon
+
+    tasks = []
+    for epsilon_val_cand in epsilon_candidates:
+        for i in range(n_init):
+            # Create a unique seed for each init and epsilon combination
+            # This ensures that if n_init > 1, each initialization is different
+            current_seed = hash((epsilon_val_cand, i)) % (2**32 -1) # Simple hash based seed
+            tasks.append((X, c, m, error, maxiter, epsilon_val_cand, current_seed))
+
+    if num_processes_for_algo > 1 and len(tasks) > 1 and X.shape[0] > 10: # Add check for X.shape[0] to avoid overhead for small data
+        # print(f"[DEBUG tune_epsilon_for_ck] Using {num_processes_for_algo} processes for {len(tasks)} tasks.")
+        try:
+            with multiprocessing.Pool(processes=num_processes_for_algo) as pool:
+                results = pool.map(_ck_cluster_worker_args, tasks)
+        except Exception as e:
+            # print(f"[ERROR tune_epsilon_for_ck] Multiprocessing Pool failed: {e}. Falling back to sequential.")
+            results = [_ck_cluster_worker_args(task) for task in tasks] # Fallback
+    else:
+        # print(f"[DEBUG tune_epsilon_for_ck] Running sequentially for {len(tasks)} tasks.")
+        results = [_ck_cluster_worker_args(task) for task in tasks]
+
+    valid_results_found = False
+    for score, cntr_res, u_res, d_res, fpc_res, cov_m_res, eps_val_res in results:
+        if score > -1.0 : # Consider score > -1 as potentially valid (silhouette is [-1, 1])
+            valid_results_found = True
+            if score > best_score:
+                best_score = score
+                best_params_tuple = (cntr_res, u_res, d_res, fpc_res, cov_m_res, eps_val_res)
+    
+    if not valid_results_found:
+        # print(f"[WARN tune_epsilon_for_ck] No valid CK configuration found with score > -1.0. Best score was {best_score}.")
+        # If all scores were -1, best_params_tuple would still hold params from one of those -1 score runs if any results had non-None components.
+        # Ensure we return None if truly no valid model was found (e.g. all components were None from worker)
+        if best_params_tuple[0] is None: # Check if center is None as proxy for failed run
+            return None, None, None, None, None, None
+    
+    # print(f"[DEBUG tune_epsilon_for_ck] Selected Epsilon: {best_params_tuple[5]} with Silhouette: {best_score}")
+    return best_params_tuple
 
 
 def ck_predict(X_new, cntr, cov_matrices, m=2):
@@ -137,27 +242,26 @@ def ck_predict(X_new, cntr, cov_matrices, m=2):
     return u
 
 
-def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
-    after_elbow = Elbow_method(data, X, 'CK', max_clusters)
+def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    after_elbow = Elbow_method(data, X, 'CK', max_clusters, num_processes_for_algo=num_processes_for_algo)
     n_clusters = after_elbow['optimal_cluster_n']
-    parameter_dict = after_elbow['best_parameter_dict'] # This dict might have 'n_init' from Elbow's base params
+    parameter_dict = after_elbow['best_parameter_dict']
+    n_init_for_ck = parameter_dict.get('n_init', 10) # Use n_init from elbow or default to 10 for CK
 
-    # Perform Gustafson-Kessel Clustering; Performing with auto-tuned epsilon included
-    # Pass the specific n_init for CK here
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck)
+    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck, num_processes_for_algo=num_processes_for_algo)
     
     if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
         print("[ERROR clustering_CK] tune_epsilon_for_ck returned no valid result. Cannot proceed.")
         # Handle error appropriately, e.g., return a dict indicating failure or raise exception
         return {
-            'Cluster_labeling': np.array([]), # Empty or error indicator
-            'Best_parameter_dict': parameter_dict, # Might still be useful
+            'Cluster_labeling': np.array([]),
+            'Best_parameter_dict': parameter_dict,
             'Error': 'CK clustering failed due to no valid result from tuning.'
         }
 
     cntr, u, d, fpc, cov_matrices, best_epsilon = ck_results
-    parameter_dict['epsilon_scale'] = best_epsilon  # Save selected values
-    parameter_dict['n_init_ck_actual'] = n_init_for_ck # Save actual n_init used for CK
+    parameter_dict['epsilon_scale'] = best_epsilon
+    parameter_dict['n_init_ck_actual'] = n_init_for_ck
 
     # Assign clusters based on maximum membership
     cluster_labels = np.argmax(u, axis=0)
@@ -167,20 +271,16 @@ def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_n
     # aligned_original_labels shape will be printed inside CNI
     # print(f"[DEBUG CK main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
-    # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
-
-    # predict_CK = data['cluster'] # Old way
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     return {
-        'Cluster_labeling': final_cluster_labels_from_cni, # Use labels from CNI
+        'Cluster_labeling': final_cluster_labels_from_cni,
         'Best_parameter_dict': parameter_dict
     }
 
 
-def pre_clustering_CK(data, X, n_clusters, n_init_for_ck=30):
-    # Tune epsilon_scale for better stability, now also with n_init
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck)
+def pre_clustering_CK(data, X, n_clusters, n_init_for_ck=30, num_processes_for_algo=1):
+    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck, num_processes_for_algo=num_processes_for_algo)
 
     if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
         print(f"[ERROR pre_clustering_CK] tune_epsilon_for_ck returned no valid result for n_clusters={n_clusters}. Cannot proceed.")
@@ -244,17 +344,30 @@ def regularize_covariance(cov, epsilon_scale=1e-5):
     try:
         # Check determinant for near-singularity
         cond = np.linalg.cond(cov)
-        if cond > 1e10 or np.isnan(cond):
+        if cond > 1e10 or np.isnan(cond) or not np.isfinite(cond):
+            # print(f"[DEBUG regularize_covariance] High condition number: {cond}. Regularizing.")
             avg_diag = np.mean(np.diag(cov))
-            if avg_diag == 0 or np.isnan(avg_diag):
-                avg_diag = 1.0
+            if avg_diag == 0 or not np.isfinite(avg_diag):
+                avg_diag = 1.0 # Default if diag is zero or invalid
             epsilon = epsilon_scale * avg_diag
-            cov += np.eye(cov.shape[0]) * epsilon
+            # Ensure epsilon is not zero if avg_diag was zero and epsilon_scale is small
+            epsilon = max(epsilon, np.finfo(float).eps) 
+            cov_reg = cov + np.eye(cov.shape[0]) * epsilon
+            # print(f"[DEBUG regularize_covariance] Added epsilon: {epsilon}")
+            return cov_reg
     except np.linalg.LinAlgError:
-        # If condition number fails
-        cov += np.eye(cov.shape[0]) * epsilon_scale
+        # print("[DEBUG regularize_covariance] LinAlgError during cond check. Regularizing by default.")
+        avg_diag = np.mean(np.diag(cov))
+        if avg_diag == 0 or not np.isfinite(avg_diag):
+            avg_diag = 1.0
+        epsilon = epsilon_scale * avg_diag
+        epsilon = max(epsilon, np.finfo(float).eps)
+        cov_reg = cov + np.eye(cov.shape[0]) * epsilon
+        return cov_reg
     return cov
 
+
+'''
 def tune_epsilon_for_ck(X, c, epsilon_candidates=[1e-7, 1e-6, 1e-5, 1e-4], n_init=1, m=2, error=0.01, maxiter=500):
     best_overall_score = -np.inf # Initialize with a very small number
     best_overall_result = None
@@ -322,3 +435,4 @@ def tune_epsilon_for_ck(X, c, epsilon_candidates=[1e-7, 1e-6, 1e-5, 1e-4], n_ini
     # Unpack the best overall result
     cntr, u, d, fpc, cov_matrices = best_overall_result
     return cntr, u, d, fpc, cov_matrices, best_overall_epsilon
+'''

@@ -10,7 +10,7 @@ from Tuning_hyperparameter.Elbow_method import Elbow_method
 from Tuning_hyperparameter.Grid_search import Grid_search_Kmeans
 
 
-def loop_tuning(data, X, clustering_algorithm, max_clusters=10000):
+def loop_tuning(data, X, clustering_algorithm, max_clusters=10000, num_processes_for_algo=None):
     # Maintain complete parameter_dict for compatibility
     parameter_dict = {
         'random_state': 42,
@@ -31,15 +31,18 @@ def loop_tuning(data, X, clustering_algorithm, max_clusters=10000):
     }
     # First_parameter_dictionary
 
-    elbow_result = Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict)
+    # Pass num_processes_for_algo to Elbow_method
+    elbow_result = Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict, num_processes_for_algo=num_processes_for_algo)
     before_n_cluster = elbow_result['optimal_cluster_n']
 
     new_parameter_dict = parameter_dict # Initialize new_parameter_dict
 
     # Loop until cluster number stabilizes
     for _ in range(1000):  # Safety limit
-        new_params = Grid_search_Kmeans(X, before_n_cluster, parameter_dict)
-        elbow_result = Elbow_method(data, X, clustering_algorithm, max_clusters, new_params)
+        # Pass num_processes_for_algo to Grid_search_Kmeans
+        new_params = Grid_search_Kmeans(X, before_n_cluster, parameter_dict, num_processes_for_algo=num_processes_for_algo)
+        # Pass num_processes_for_algo to Elbow_method
+        elbow_result = Elbow_method(data, X, clustering_algorithm, max_clusters, new_params, num_processes_for_algo=num_processes_for_algo)
         after_n_cluster = elbow_result['optimal_cluster_n']
 
         if 0.99 < before_n_cluster / after_n_cluster < 1.01:

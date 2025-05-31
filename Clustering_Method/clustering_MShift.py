@@ -11,14 +11,14 @@ from Tuning_hyperparameter.Grid_search import Grid_search_all
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_MShift_clustering(data, X, state, quantile, n_samples):  # Fundamental MeanShift clustering
+def clustering_MShift_clustering(data, X, state, quantile, n_samples, num_processes_for_algo=1):  # Fundamental MeanShift clustering
     # Estimate bandwidth based on the data
     bandwidth = estimate_bandwidth(X, quantile=quantile, n_samples=n_samples, random_state=state) # default; randomm_state=42, n_samples=500, quantile=0.2
     if bandwidth <= 0:
         bandwidth = 0.1  # Minimum safe value
     
-    # Apply MeanShift with the estimated bandwidth
-    MShift_model = MeanShift(bandwidth=bandwidth, bin_seeding=True)
+    # Use num_processes_for_algo for n_jobs in MeanShift
+    MShift_model = MeanShift(bandwidth=bandwidth, bin_seeding=True, n_jobs=num_processes_for_algo)
     clusters = MShift_model.fit_predict(X)
 
     num_clusters = len(np.unique(clusters))  # Counting the number of clusters
@@ -26,18 +26,18 @@ def clustering_MShift_clustering(data, X, state, quantile, n_samples):  # Fundam
     return clusters, num_clusters, MShift_model
 
 
-def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
-    parameter_dict = Grid_search_all(X, 'MShift')
+def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    parameter_dict = Grid_search_all(X, 'MShift', num_processes_for_algo=num_processes_for_algo)
 
     random_state_val = parameter_dict.get('random_state', 42)
     quantile_val = parameter_dict.get('quantile', 0.15) 
     n_samples_val = parameter_dict.get('n_samples', 100)
 
-    clusters, num_clusters, MShift_model_instance = clustering_MShift_clustering(data, X, state=random_state_val, quantile=quantile_val, n_samples=n_samples_val)
+    clusters, num_clusters, MShift_model_instance = clustering_MShift_clustering(data, X, state=random_state_val, quantile=quantile_val, n_samples=n_samples_val, num_processes_for_algo=num_processes_for_algo)
 
     print(f"\n[DEBUG MeanShift main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
 
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni, # Use labels from CNI
@@ -47,10 +47,11 @@ def clustering_MShift(data, X, aligned_original_labels, global_known_normal_samp
 
 # Additional classes for Grid Search
 class MeanShiftWithDynamicBandwidth(BaseEstimator, ClusterMixin):
-    def __init__(self, quantile=0.3, n_samples=500, bin_seeding=True):
+    def __init__(self, quantile=0.3, n_samples=500, bin_seeding=True, num_processes_for_algo=1):
         self.quantile = quantile
         self.n_samples = n_samples
         self.bin_seeding = bin_seeding
+        self.num_processes_for_algo = num_processes_for_algo
         self.bandwidth = None
         self.model = None
 
@@ -63,7 +64,7 @@ class MeanShiftWithDynamicBandwidth(BaseEstimator, ClusterMixin):
             print(f"Estimated bandwidth too small ({self.bandwidth:.5f}) → Adjusted to 0.001")
             self.bandwidth = 1e-3
 
-        self.model = MeanShift(bandwidth=self.bandwidth, bin_seeding=self.bin_seeding)
+        self.model = MeanShift(bandwidth=self.bandwidth, bin_seeding=self.bin_seeding, n_jobs=self.num_processes_for_algo)
         self.model.fit(X)
 
         self.labels_ = self.model.labels_
@@ -74,8 +75,8 @@ class MeanShiftWithDynamicBandwidth(BaseEstimator, ClusterMixin):
         return self.model.predict(X)
     
 
-def pre_clustering_MShift(data, X, random_state, quantile, n_samples):
-    cluster_labels, num_clusters_actual, MShift_model_obj = clustering_MShift_clustering(data, X, random_state, quantile, n_samples)
+def pre_clustering_MShift(data, X, random_state, quantile, n_samples, num_processes_for_algo=1):
+    cluster_labels, num_clusters_actual, MShift_model_obj = clustering_MShift_clustering(data, X, random_state, quantile, n_samples, num_processes_for_algo=num_processes_for_algo)
 
     return {
         'model_labels' : cluster_labels,

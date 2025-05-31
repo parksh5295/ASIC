@@ -14,11 +14,12 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 
 
 class GMeans:
-    def __init__(self, max_clusters=10, tol=1e-4, random_state=None, n_init=30):
+    def __init__(self, max_clusters=10, tol=1e-4, random_state=None, n_init=30, num_processes_for_algo=1):
         self.max_clusters = max_clusters
         self.tol = tol
         self.random_state = random_state
         self.n_init = n_init
+        self.num_processes_for_algo = num_processes_for_algo
         self.labels_ = None
         self.cluster_centers_ = None
 
@@ -40,8 +41,8 @@ class GMeans:
                 cluster_id += 1
                 continue
 
-            # Clustering with K-means (k=2)
-            kmeans = KMeans(n_clusters=2, tol=self.tol, random_state=self.random_state, n_init=self.n_init)
+            # Clustering with K-means (k=2), using num_processes_for_algo for n_jobs
+            kmeans = KMeans(n_clusters=2, tol=self.tol, random_state=self.random_state, n_init=self.n_init, n_jobs=self.num_processes_for_algo)
             kmeans.fit(data)
             new_labels = kmeans.labels_
 
@@ -79,9 +80,9 @@ class GMeans:
         return self.fit(X).labels_
 
 
-def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
-    # Grid_search_all returns a parameter_dict with best_params already applied.
-    parameter_dict = Grid_search_all(X, 'Gmeans')
+def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    # Pass num_processes_for_algo to Grid_search_all (Grid_search_all itself will need to be modified)
+    parameter_dict = Grid_search_all(X, 'Gmeans', num_processes_for_algo=num_processes_for_algo)
 
     # The parameter_dict returned by Grid_search_all already contains the optimal values, or default values if it fails.
     # If you need additional failure handling, you can check the contents of parameter_dict (e.g., specific key presence, score value).
@@ -104,11 +105,12 @@ def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samp
         tol_val = parameter_dict.get('tol')
         n_init_val = parameter_dict.get('n_init', 30) # If GMeans class also accepts n_init, modify it
 
-    # G-means Clustering (using GaussianMixture)
+    # Pass num_processes_for_algo to GMeans constructor
     gmeans = GMeans(random_state=random_state_val, 
                     max_clusters=max_clusters_val, 
                     tol=tol_val,
-                    n_init=n_init_val) # Add n_init if GMeans class also accepts it
+                    n_init=n_init_val,
+                    num_processes_for_algo=num_processes_for_algo)
     clusters = gmeans.fit_predict(X)
     n_clusters = len(np.unique(clusters))  # Counting the number of clusters
 
@@ -117,8 +119,8 @@ def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samp
     # aligned_original_labels shape will be printed inside CNI
     # print(f"[DEBUG GMeans main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
-    # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    # Pass num_processes_for_algo to clustering_nomal_identify
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     # predict_Gmeans = data['cluster'] # Old way
     
@@ -128,9 +130,9 @@ def clustering_Gmeans(data, X, aligned_original_labels, global_known_normal_samp
     }
 
 
-def pre_clustering_Gmeans(data, X, random_state, max_clusters, tol, n_init=30):
-    # G-means Clustering
-    gmeans = GMeans(random_state=random_state, max_clusters=max_clusters, tol=tol, n_init=n_init) # Pass n_init to GMeans
+def pre_clustering_Gmeans(data, X, random_state, max_clusters, tol, n_init=30, num_processes_for_algo=1):
+    # Pass num_processes_for_algo to GMeans constructor
+    gmeans = GMeans(random_state=random_state, max_clusters=max_clusters, tol=tol, n_init=n_init, num_processes_for_algo=num_processes_for_algo)
     cluster_labels = gmeans.fit_predict(X)
     n_clusters_actual = len(np.unique(cluster_labels))  # Actual number of clusters found by GMeans
 

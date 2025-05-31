@@ -10,7 +10,7 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 from Clustering_Method.gng_replacement import NeuralGasWithParamsSimple   # replaced Neupy
 
 # Replacing Neupy-based function with custom implementation
-def clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max_edge_age):
+def clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max_edge_age, num_processes_for_algo=1):
     model = NeuralGasWithParamsSimple(
         n_start_nodes=n_start_nodes,
         max_nodes=max_nodes,
@@ -23,9 +23,9 @@ def clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max
     return clusters, num_clusters
 
 
-def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
+def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
     # Grid_search_all returns a parameter_dict with best_params already applied.
-    parameter_dict = Grid_search_all(X, 'NeuralGas')
+    parameter_dict = Grid_search_all(X, 'NeuralGas', num_processes_for_algo=num_processes_for_algo)
     # print('parameter_dict from Grid_search_all: ', parameter_dict)
 
     # Get the values directly from the parameter_dict
@@ -39,7 +39,8 @@ def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_s
         n_start_nodes=n_start_nodes_val,
         max_nodes=max_nodes_val,
         step=step_val,
-        max_edge_age=max_edge_age_val
+        max_edge_age=max_edge_age_val,
+        num_processes_for_algo=num_processes_for_algo
     )
 
     # Debug cluster id (X is the data used for clustering)
@@ -48,7 +49,7 @@ def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_s
     # print(f"[DEBUG NeuralGas main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, num_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni,
@@ -58,11 +59,12 @@ def clustering_NeuralGas(data, X, aligned_original_labels, global_known_normal_s
 
 # For Grid Search compatibility – use the simple class
 class NeuralGasWithParams(BaseEstimator, ClusterMixin):
-    def __init__(self, n_start_nodes=2, max_nodes=50, step=0.2, max_edge_age=50):
+    def __init__(self, n_start_nodes=2, max_nodes=50, step=0.2, max_edge_age=50, num_processes_for_algo=1):
         self.n_start_nodes = n_start_nodes
         self.max_nodes = max_nodes
         self.step = step
         self.max_edge_age = max_edge_age
+        self.num_processes_for_algo = num_processes_for_algo
         self.model = None
         self.clusters = None
 
@@ -84,9 +86,9 @@ class NeuralGasWithParams(BaseEstimator, ClusterMixin):
         return self.clusters
 
 
-def pre_clustering_NeuralGas(data, X, n_start_nodes, max_nodes, step, max_edge_age):
+def pre_clustering_NeuralGas(data, X, n_start_nodes, max_nodes, step, max_edge_age, num_processes_for_algo=1):
     # cluster_labels are model-generated labels, num_clusters_actual is the count of unique labels found by NeuralGas
-    cluster_labels, num_clusters_actual = clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max_edge_age)
+    cluster_labels, num_clusters_actual = clustering_NeuralGas_clustering(data, X, n_start_nodes, max_nodes, step, max_edge_age, num_processes_for_algo=num_processes_for_algo)
     
     # predict_NeuralGas = clustering_nomal_identify(data, cluster_labels, num_clusters_actual)
     # num_clusters = len(np.unique(predict_NeuralGas))  # Counting the number of clusters

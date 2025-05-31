@@ -9,12 +9,16 @@ from Tuning_hyperparameter.Loop_elbow_gs import loop_tuning
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_Kmeans(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3): # main clustering
-    clustering_result_dict = loop_tuning(data, X, 'Kmeans', max_clusters)
+def clustering_Kmeans(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1): # main clustering
+    # Pass num_processes_for_algo to loop_tuning (loop_tuning itself will need to be modified to accept and use this)
+    clustering_result_dict = loop_tuning(data, X, 'Kmeans', max_clusters, num_processes_for_algo=num_processes_for_algo)
     n_clusters = clustering_result_dict['optimal_cluster_n']
     best_parameter_dict = clustering_result_dict['best_parameter_dict']
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=best_parameter_dict['random_state'], n_init=best_parameter_dict['n_init'])
+    # Use num_processes_for_algo for n_jobs in KMeans
+    # Ensure n_init in best_parameter_dict is > 1 for n_jobs to be effective, or set a default n_init like 10 if not present.
+    n_init_val = best_parameter_dict.get('n_init', 10) # Default to 10 if not in dict
+    kmeans = KMeans(n_clusters=n_clusters, random_state=best_parameter_dict['random_state'], n_init=n_init_val, n_jobs=num_processes_for_algo)
     clusters = kmeans.fit_predict(X)
 
     # Debug cluster id (data refers to original data, X is the data used for clustering)
@@ -23,8 +27,8 @@ def clustering_Kmeans(data, X, max_clusters, aligned_original_labels, global_kno
     # print(f"[DEBUG KMeans main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    # The result from CNI is directly used, not assigned to data['cluster'] here.
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    # Also pass num_processes_for_algo to CNI (clustering_nomal_identify will need to be modified)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     # predict_kmeans = data['cluster'] # Old way
 
@@ -34,9 +38,10 @@ def clustering_Kmeans(data, X, max_clusters, aligned_original_labels, global_kno
     }
 
 
-def pre_clustering_Kmeans(data, X, n_clusters, random_state, n_init):
+def pre_clustering_Kmeans(data, X, n_clusters, random_state, n_init, num_processes_for_algo=1): # Added num_processes_for_algo
     # Apply KMeans Clustering
-    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=n_init)
+    # Use num_processes_for_algo for n_jobs in KMeans. Ensure n_init > 1.
+    kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=n_init, n_jobs=num_processes_for_algo)
     cluster_labels = kmeans.fit_predict(X)
 
     # REMOVED call to clustering_nomal_identify

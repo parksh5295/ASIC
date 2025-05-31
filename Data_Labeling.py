@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd # Ensure pandas is imported as pd for X.to_numpy()
 import time
 import math # Added for math.ceil
+import os # Added import for os.cpu_count()
 from sklearn.preprocessing import MinMaxScaler
 from Dataset_Choose_Rule.choose_amount_dataset import file_path_line_nonnumber, file_cut
 from definition.Anomal_Judgment import anomal_judgment_nonlabel, anomal_judgment_label
@@ -35,6 +36,7 @@ def main():
     parser.add_argument('--eval_clustering_silhouette', type=str, default="n", help="Evaluate with silhouette score (y/n)")
     parser.add_argument('--autotune', type=str, default="y", help="Enable autotuning for clustering parameters (y/n)")
     parser.add_argument('--association', type=str, default="apriori")   # Association Rule
+    parser.add_argument('--max_algo_processes', type=int, default=0, help="Max processes for internal clustering algorithms. 0 for all available cores.") # New argument
 
     # Save the above in args
     args = parser.parse_args()
@@ -48,9 +50,19 @@ def main():
     eval_clustering_silhouette_flag = args.eval_clustering_silhouette.lower() == 'y'
     autotune_enabled = args.autotune.lower() == 'y'
     Association_mathod = args.association
+    max_algo_processes_arg = args.max_algo_processes # New argument
 
     total_start_time = time.time()  # Start All Time
     timing_info = {}  # For step-by-step time recording
+
+    # Determine the number of processes for internal algorithms
+    available_cores = os.cpu_count()
+    if max_algo_processes_arg > 0 and max_algo_processes_arg <= available_cores:
+        num_processes_for_clustering_algo = max_algo_processes_arg
+    else:
+        num_processes_for_clustering_algo = available_cores
+    
+    print(f"[INFO] Using up to {num_processes_for_clustering_algo} processes for internal clustering algorithms.")
 
     # Define candidate threshold values for CNI
     threshold_candidates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # Restored to include 0.1 and 0.2
@@ -364,7 +376,8 @@ def main():
                     current_chunk_original_labels_np, 
                     clustering_algorithm, 
                     global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni,
-                    threshold_value=current_threshold_in_chunk_loop
+                    threshold_value=current_threshold_in_chunk_loop,
+                    num_processes_for_algo=num_processes_for_clustering_algo # Added parameter
                 )
             else: 
                 temp_chunk_clustering_result = choose_clustering_algorithm_Non_optimization(
@@ -373,7 +386,8 @@ def main():
                     current_chunk_original_labels_np, 
                     clustering_algorithm, 
                     global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni,
-                    threshold_value=current_threshold_in_chunk_loop
+                    threshold_value=current_threshold_in_chunk_loop,
+                    num_processes_for_algo=num_processes_for_clustering_algo # Added parameter
                 )
             
             # --- Start Debug Prints ---
@@ -490,11 +504,15 @@ def main():
         if autotune_enabled:
             final_chunk_clustering_result, final_gmm_type_for_chunk = choose_clustering_algorithm(
                 data, current_chunk_data_np, current_chunk_original_labels_np, clustering_algorithm,
-                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold)
+                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold,
+                num_processes_for_algo=num_processes_for_clustering_algo # Added parameter
+            )
         else:
             final_chunk_clustering_result = choose_clustering_algorithm_Non_optimization(
                 data, current_chunk_data_np, current_chunk_original_labels_np, clustering_algorithm,
-                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold)
+                global_known_normal_samples_pca=global_known_normal_samples_pca_for_cni, threshold_value=optimal_cni_threshold,
+                num_processes_for_algo=num_processes_for_clustering_algo # Added parameter
+            )
         
         if 'Cluster_labeling' in final_chunk_clustering_result and final_chunk_clustering_result['Cluster_labeling'] is not None:
             labels_for_this_chunk_optimal = final_chunk_clustering_result['Cluster_labeling']

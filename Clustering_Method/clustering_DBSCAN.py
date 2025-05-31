@@ -9,20 +9,17 @@ from Tuning_hyperparameter.Grid_search import Grid_search_all
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_DBSCAN_clustering(data, X, eps, count_samples):  # Fundamental DBSCAN clustering
-    # Apply DBSCAN clustering
-    dbscan = DBSCAN(eps=eps, min_samples=count_samples) # default; eps=0.5, min_samples=5
-    # eps: Radius, min_samples: Minimum number of samples to qualify as a cluster
+def clustering_DBSCAN_clustering(data, X, eps, count_samples, num_processes_for_algo=1):  # Added num_processes_for_algo
+    # Apply DBSCAN clustering, using num_processes_for_algo for n_jobs
+    dbscan = DBSCAN(eps=eps, min_samples=count_samples, n_jobs=num_processes_for_algo)
     clusters = dbscan.fit_predict(X)
-
-    num_clusters = len(np.unique(clusters))  # Counting the number of clusters
-
+    num_clusters = len(np.unique(clusters))
     return clusters, num_clusters, dbscan
 
 
-def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None, threshold_value=0.3):
-    # Using internal defaults due to not passing parameter_dict when calling Grid_search_all
-    parameter_dict = Grid_search_all(X_reduced_features, 'DBSCAN') 
+def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1): # Added num_processes_for_algo
+    # Pass num_processes_for_algo to Grid_search_all (Grid_search_all itself will need to be modified)
+    parameter_dict = Grid_search_all(X_reduced_features, 'DBSCAN', num_processes_for_algo=num_processes_for_algo) 
     
     # Using internal defaults due to not passing parameter_dict when calling Grid_search_all
     # Default parameter_dict inside Grid_search_all in Grid_search.py: 'eps': 0.5, 'count_samples': 5
@@ -33,12 +30,11 @@ def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_
 
     print(f"DBSCAN: Using parameters eps={eps_val}, min_samples={min_samples_val}")
     
-    # Perform DBSCAN Clustering
-    predict_DBSCAN, num_clusters_actual, dbscan_model = clustering_DBSCAN_clustering(data, X_reduced_features, eps_val, min_samples_val)
+    # Pass num_processes_for_algo to clustering_DBSCAN_clustering
+    predict_DBSCAN, num_clusters_actual, dbscan_model = clustering_DBSCAN_clustering(data, X_reduced_features, eps_val, min_samples_val, num_processes_for_algo=num_processes_for_algo)
     
-    # Identify Clustering results as normal/abnormal
-    # clustering_nomal_identify function takes X, original_labels_aligned, cluster_labels, n_clusters as arguments.
-    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    # Pass num_processes_for_algo to clustering_nomal_identify
+    final_cluster_labels_from_cni = clustering_nomal_identify(X_reduced_features, original_labels_aligned, predict_DBSCAN, num_clusters_actual, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
     num_clusters_after_cni = len(np.unique(final_cluster_labels_from_cni))
 
     return {
@@ -47,12 +43,12 @@ def clustering_DBSCAN(data, X_reduced_features, original_labels_aligned, global_
     }
 
 
-def pre_clustering_DBSCAN(data, X, eps, count_samples):
-    # cluster_labels are model-generated labels, num_clusters_actual is the count of unique labels found by DBSCAN
-    cluster_labels, num_clusters_actual, dbscan = clustering_DBSCAN_clustering(data, X, eps, count_samples)
+def pre_clustering_DBSCAN(data, X, eps, count_samples, num_processes_for_algo=1): # Added num_processes_for_algo
+    # Pass num_processes_for_algo to clustering_DBSCAN_clustering
+    cluster_labels, num_clusters_actual, dbscan = clustering_DBSCAN_clustering(data, X, eps, count_samples, num_processes_for_algo=num_processes_for_algo)
     
     return {
         'model_labels' : cluster_labels,
-        'n_clusters' : num_clusters_actual, # Actual n_clusters from DBSCAN
+        'n_clusters' : num_clusters_actual,
         'before_labeling' : dbscan
     }

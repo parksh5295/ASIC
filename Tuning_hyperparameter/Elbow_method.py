@@ -8,16 +8,18 @@
 import numpy as np
 from Clustering_Method.common_clustering import get_clustering_function
 import multiprocessing # Added for parallel processing
+import os # For os.cpu_count()
 
 
-def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters, parameter_dict, GMM_type="normal"):   # X: Encoding and embedding, post-PCA, post-delivery
+def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters, parameter_dict, GMM_type="normal", num_processes_for_algo=1):   # X: Encoding and embedding, post-PCA, post-delivery
     pre_clustering_func = get_clustering_function(clustering_algorithm)
 
     # Parameters are expected to be in parameter_dict passed from Elbow_method
     if clustering_algorithm == 'Kmeans':
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
-            'n_init': parameter_dict['n_init']
+            'n_init': parameter_dict['n_init'],
+            'num_processes_for_algo': num_processes_for_algo
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
     elif clustering_algorithm == 'GMM': # General GMM, distinct from SGMM
@@ -25,14 +27,16 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
             'random_state': parameter_dict['random_state'],
             'GMM_type': GMM_type, # GMM_type is specific to pre_clustering_GMM
             'reg_covar': parameter_dict['reg_covar'],
-            'n_init': parameter_dict.get('n_init', 1) # Ensure n_init is passed for general GMM too
+            'n_init': parameter_dict.get('n_init', 1), # Ensure n_init is passed for general GMM too
+            'num_processes_for_algo': num_processes_for_algo
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
     elif clustering_algorithm == 'SGMM': # Spherical GMM
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'reg_covar': parameter_dict['reg_covar'],
-            'n_init': parameter_dict.get('n_init', 1) # Added n_init from parameter_dict
+            'n_init': parameter_dict.get('n_init', 1), # Added n_init from parameter_dict
+            'num_processes_for_algo': num_processes_for_algo
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
     elif clustering_algorithm in ['FCM', 'CK']:
@@ -40,17 +44,22 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
             # For CK, ensure n_init from the parameter_dict (which is 30 from Elbow_method's base_parameter_dict)
             # is passed as n_init_for_ck to pre_clustering_CK
             algorithm_params_ck = {
-                'n_init_for_ck': parameter_dict.get('n_init', 30) # Default to 30 if not in dict somehow
+                'n_init_for_ck': parameter_dict.get('n_init', 30), # Default to 30 if not in dict somehow
+                'num_processes_for_algo': num_processes_for_algo
             }
             clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params_ck)
-        else: # FCM or any other in this list that doesn't take n_init
-            clustering = pre_clustering_func(data, X, n_clusters)
+        else: # FCM or any other in this list that doesn't take n_init explicitly here, but pre_clustering_FCM should take num_processes_for_algo
+            algorithm_params_fcm = {
+                'num_processes_for_algo': num_processes_for_algo
+            }
+            clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params_fcm)
     elif clustering_algorithm == 'Gmeans':
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'max_clusters': parameter_dict['max_clusters'], # GMeans uses max_clusters from dict
             'tol': parameter_dict['tol'],
-            'n_init': parameter_dict.get('n_init', 30) # Added n_init for Gmeans
+            'n_init': parameter_dict.get('n_init', 30), # Added n_init for Gmeans
+            'num_processes_for_algo': num_processes_for_algo
         }
         # n_clusters (k from loop) is not passed directly to pre_clustering_Gmeans
         clustering = pre_clustering_func(data, X, **algorithm_params)
@@ -58,7 +67,8 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'max_clusters': parameter_dict['max_clusters'], # XMeans uses max_clusters from dict
-            'n_init': parameter_dict.get('n_init', 30) # Added n_init for Xmeans
+            'n_init': parameter_dict.get('n_init', 30), # Added n_init for Xmeans
+            'num_processes_for_algo': num_processes_for_algo
         }
         # n_clusters (k from loop) is not passed directly to pre_clustering_Xmeans
         clustering = pre_clustering_func(data, X, **algorithm_params)
@@ -66,7 +76,8 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
         algorithm_params = {
             # DBSCAN does not use random_state in its sklearn implementation
             'eps': parameter_dict['eps'],
-            'count_samples': parameter_dict['count_samples'] # maps to min_samples
+            'count_samples': parameter_dict['count_samples'], # maps to min_samples
+            'num_processes_for_algo': num_processes_for_algo
         }
         # n_clusters (k from loop) is not passed to pre_clustering_DBSCAN
         clustering = pre_clustering_func(data, X, **algorithm_params)
@@ -74,7 +85,8 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'quantile': parameter_dict['quantile'],
-            'n_samples': parameter_dict['n_samples']
+            'n_samples': parameter_dict['n_samples'],
+            'num_processes_for_algo': num_processes_for_algo
         }
         # n_clusters (k from loop) is not passed to pre_clustering_MShift
         clustering = pre_clustering_func(data, X, **algorithm_params)
@@ -84,20 +96,22 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
             'n_start_nodes': parameter_dict['n_start_nodes'],
             'max_nodes': parameter_dict['max_nodes'],
             'step': parameter_dict['step'],
-            'max_edge_age': parameter_dict['max_edge_age']
+            'max_edge_age': parameter_dict['max_edge_age'],
+            'num_processes_for_algo': num_processes_for_algo
         }
         # n_clusters (k from loop) is not passed to pre_clustering_NeuralGas
         clustering = pre_clustering_func(data, X, **algorithm_params)
     else: # KMedians and any other algorithm that takes n_clusters and random_state by default
         algorithm_params = {
-            'random_state': parameter_dict['random_state']
+            'random_state': parameter_dict['random_state'],
+            'num_processes_for_algo': num_processes_for_algo
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
 
     return clustering
 
 
-def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=None):
+def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=None, num_processes_for_algo=None):
     # Maintain complete parameter_dict for compatibility and to ensure all necessary params are available
     base_parameter_dict = {
         'random_state': 42,
@@ -135,16 +149,34 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
     # Prepare tasks for parallel execution
     tasks = []
     for k_task in cluster_range:
-        tasks.append((k_task, data, X, clustering_algorithm, current_parameter_dict))
+        # Pass num_processes_for_algo to _calculate_score_for_k via args_tuple
+        tasks.append((k_task, data, X, clustering_algorithm, current_parameter_dict, num_processes_for_algo))
 
     # This will store (k, score) tuples, possibly out of order from parallel execution
     k_score_pairs = [] 
 
     if tasks:
-        num_processes = min(len(tasks), multiprocessing.cpu_count())
-        print(f"[Elbow_method] Using {num_processes} processes for {len(tasks)} k-values.")
+        # Determine number of processes for the Pool
+        if num_processes_for_algo == 0: # Use all available CPUs
+            pool_processes = os.cpu_count()
+            if pool_processes is None: # Fallback if os.cpu_count() returns None
+                 pool_processes = 1 
+        elif num_processes_for_algo is not None and num_processes_for_algo > 0: # User specified positive number
+            pool_processes = num_processes_for_algo
+        else: # Default: None or invalid value, use half CPUs or multiprocessing's default, ensure at least 1
+            cpu_cores = os.cpu_count()
+            if cpu_cores:
+                pool_processes = max(1, cpu_cores // 2)
+            else: # Fallback if os.cpu_count() returns None
+                pool_processes = max(1, multiprocessing.cpu_count() // 2 if multiprocessing.cpu_count() else 1)
+        
+        # Ensure pool_processes does not exceed the number of tasks
+        pool_processes = min(pool_processes, len(tasks))
+        if pool_processes == 0 and len(tasks) > 0: pool_processes = 1 # Ensure at least 1 process if tasks exist
+
+        print(f"[Elbow_method] Using {pool_processes} processes for {len(tasks)} k-values (num_processes_for_algo={num_processes_for_algo}).")
         try:
-            with multiprocessing.Pool(processes=num_processes) as pool:
+            with multiprocessing.Pool(processes=pool_processes) as pool:
                 # pool.map will preserve order if tasks are ordered, 
                 # but _calculate_score_for_k returns (k, score) so we can sort later if needed.
                 # Using map as _calculate_score_for_k takes a single tuple argument.
@@ -154,7 +186,8 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
             # Fallback to sequential execution
             k_score_pairs = [] # Clear partially filled results from try block
             for k_seq in cluster_range:
-                _, score_seq = _calculate_score_for_k((k_seq, data, X, clustering_algorithm, current_parameter_dict)) # Call helper directly
+                # Call helper directly, passing num_processes_for_algo
+                _, score_seq = _calculate_score_for_k((k_seq, data, X, clustering_algorithm, current_parameter_dict, num_processes_for_algo)) 
                 k_score_pairs.append((k_seq, score_seq))
     else:
         print("[Elbow_method] No tasks to run for Elbow method (max_clusters might be < 2).")
@@ -221,12 +254,14 @@ def Elbow_method(data, X, clustering_algorithm, max_clusters, parameter_dict=Non
 # Helper function for Elbow_method parallel execution
 def _calculate_score_for_k(args_tuple):
     """Calculates WCSS/BIC score for a single k value."""
-    k, data_local, X_local, clustering_algorithm_local, current_parameter_dict_local = args_tuple
+    # Unpack num_processes_for_algo from args_tuple
+    k, data_local, X_local, clustering_algorithm_local, current_parameter_dict_local, num_processes_for_algo_local = args_tuple
     score_val = np.inf # Default to a bad score
 
     try:
-        # print(f"[DEBUG Elbow Worker] Processing k={k} for {clustering_algorithm_local}") # Optional worker debug
-        clustering_result = Elbow_choose_clustering_algorithm(data_local, X_local, clustering_algorithm_local, k, current_parameter_dict_local)
+        # print(f"[DEBUG Elbow Worker] Processing k={k} for {clustering_algorithm_local} with num_processes_for_algo={num_processes_for_algo_local}") # Optional worker debug
+        # Pass num_processes_for_algo_local to Elbow_choose_clustering_algorithm
+        clustering_result = Elbow_choose_clustering_algorithm(data_local, X_local, clustering_algorithm_local, k, current_parameter_dict_local, num_processes_for_algo=num_processes_for_algo_local)
         
         if clustering_result is None or 'before_labeling' not in clustering_result:
             print(f"Warning: Clustering failed or returned unexpected result for k={k}. Using inf score.")

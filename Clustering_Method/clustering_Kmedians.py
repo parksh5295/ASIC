@@ -10,8 +10,8 @@ from Tuning_hyperparameter.Elbow_method import Elbow_method
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 
 
-def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3):
-    after_elbow = Elbow_method(data, X, 'Kmedians', max_clusters)
+def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    after_elbow = Elbow_method(data, X, 'Kmedians', max_clusters, num_processes_for_algo=num_processes_for_algo)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
 
@@ -25,7 +25,7 @@ def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_k
     # print(f"[DEBUG KMedians main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
 
     # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value)
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
 
     # predict_kmedians = data['cluster'] # Old way
 
@@ -35,7 +35,7 @@ def clustering_Kmedians(data, X, max_clusters, aligned_original_labels, global_k
     }
 
 
-def pre_clustering_Kmedians(data, X, n_clusters, random_state):
+def pre_clustering_Kmedians(data, X, n_clusters, random_state, num_processes_for_algo=1):
     kmedians = KMedoids(n_clusters=n_clusters, random_state=random_state)   # default; random_state=42 in original, now passed
 
     cluster_labels = kmedians.fit_predict(X)
