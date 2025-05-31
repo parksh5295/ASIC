@@ -24,7 +24,9 @@ from Dataset_Choose_Rule.time_save import time_save_csv_CS
 import logging
 from datetime import datetime
 
-# Setup logger for this module
+# Define the logger object at the module level so it can be used throughout the script.
+# The actual configuration of the logger (level, format, handlers) will be done
+# in the if __name__ == '__main__': block or in the main() function.
 logger = logging.getLogger(__name__)
 
 # Helper function for parallel processing
@@ -37,9 +39,22 @@ def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grou
     association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
     association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
     signatures = dict_list_difference(association_list_anomal, association_list_nomal)
+    print(f"  [DEBUG] Generated {len(signatures)} raw signatures before signature_evaluate.")
+
     signature_result = signature_evaluate(group_mapped_df, signatures)
+    print(f"  [DEBUG] signature_evaluate returned {len(signature_result) if signature_result is not None else 0} items. Type: {type(signature_result)}")
+
+    print(f"  [DEBUG] Calling under_limit with {len(signature_result) if signature_result is not None else 0} signatures...")
     signature_sets = under_limit(signature_result, signature_ea, precision_underlimit)
-    current_recall = calculate_signatures(group_mapped_df, signature_sets)
+    print(f"  [DEBUG] under_limit returned {len(signature_sets) if signature_sets is not None else 0} signature sets.")
+
+    if not signature_sets: # signature_sets is empty or None
+        print(f"  [DEBUG] signature_sets is empty or None after under_limit. Skipping recall calculation for confidence {min_confidence}.")
+        current_recall = 0 # Or an appropriate default value for recall when no sets
+    else:
+        print(f"  [DEBUG] Calling calculate_signatures (for recall) with {len(signature_sets)} signature sets...")
+        current_recall = calculate_signatures(group_mapped_df, signature_sets)
+        print(f"  [DEBUG] calculate_signatures (for recall) returned: {current_recall}")
 
     # Debug prints for this iteration (optional, can be removed for cleaner output)
     print(f"  min_confidence: {min_confidence}")
@@ -101,7 +116,6 @@ def main():
 
     timing_info['1_load_data'] = time.time() - start
     logger.info(f"Loading data from file: {file_path}")
-    logger.info(f"Data loading complete. Anomal transactions: {len(data) - len(data[data['label'] == 0])}, Nomal transactions: {len(data[data['label'] == 0])}")
 
 
     # 2. Handling judgments of Anomal or Nomal
@@ -121,6 +135,19 @@ def main():
         data['label'] = anomal_judgment_label(data)
 
     timing_info['2_anomal_judgment'] = time.time() - start
+
+    # Add the logger.info line here, after 'label' column is created, with a check.
+    if 'label' in data.columns:
+        try:
+            nomal_count = len(data[data['label'] == 0])
+            anomal_count = len(data) - nomal_count # Or len(data[data['label'] != 0]) if 1 is not the only anomal label
+            logger.info(f"Label generation complete. Total: {len(data)}, Nomal transactions: {nomal_count}, Anomal transactions: {anomal_count}")
+            logger.info(f"Label distribution in 'data' DataFrame after judgment:\n{data['label'].value_counts(dropna=False)}")
+        except Exception as e:
+            logger.error(f"Error logging label counts: {e}")
+            logger.info(f"Data columns: {data.columns}") # Log columns if error occurs
+    else:
+        logger.warning("Could not find 'label' column in 'data' DataFrame after judgment block to log transaction counts.")
 
 
     # 3. Feature-specific embedding and preprocessing
@@ -334,15 +361,9 @@ def main():
 
 
 if __name__ == '__main__':
-    # Setup basic logging to show all debug messages and above
-    logging.basicConfig(level=logging.DEBUG, 
-                        format='%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s',
-                        handlers=[logging.StreamHandler()]) # Ensure it logs to console
-    
-    # Optionally, add a file handler
-    # file_handler = logging.FileHandler('association_main.log')
-    # file_handler.setLevel(logging.DEBUG)
-    # file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s'))
-    # logging.getLogger('').addHandler(file_handler)
-
+    # Setup basic logging configuration.
+    # This ensures that if the script is run directly, logging is configured.
+    # If this script is imported as a module, this block won't run, and the
+    # importing module would be responsible for configuring logging if desired.
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
     main()
