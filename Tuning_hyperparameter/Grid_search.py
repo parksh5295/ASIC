@@ -16,6 +16,7 @@ from sklearn.metrics import make_scorer, silhouette_score, davies_bouldin_score,
 from sklearn.cluster import KMeans, DBSCAN
 from Clustering_Method.clustering_nomal_identify import clustering_nomal_identify
 from utils.class_row import nomal_class_data
+import joblib # Added for parallel_backend
 
 
 # Moved helper for Kmeans parallel processing to top level
@@ -23,22 +24,32 @@ def _evaluate_kmeans_n_init_worker(task_args):
     # Unpack num_processes_for_algo_local from task_args
     X_k, n_clusters_k, parameter_dict_k, n_init_k, num_processes_for_algo_local = task_args
     
-    # Determine n_jobs for KMeans based on num_processes_for_algo_local
-    # If num_processes_for_algo_local is 0, it means use all cores, which can be -1 for n_jobs
-    # If None, can default to 1 or some other logic. For controlled parallelism, assume positive int or 0.
+    # Determine n_jobs for joblib.parallel_backend context
+    '''
     n_jobs_for_kmeans = -1 if num_processes_for_algo_local == 0 else num_processes_for_algo_local
     if num_processes_for_algo_local is None: # Default if None is passed through
-        n_jobs_for_kmeans = 1 
+        n_jobs_for_kmeans = 1
+    '''
+    n_jobs_for_context = 1 # Default to 1 (sequential)
+    if num_processes_for_algo_local == 0: # 0 means use all available cores
+        n_jobs_for_context = -1
+    elif num_processes_for_algo_local is not None and num_processes_for_algo_local > 0:
+        n_jobs_for_context = num_processes_for_algo_local
         
     kmeans = KMeans(
         n_clusters=n_clusters_k,
         random_state=parameter_dict_k.get('random_state', 42), # Use get for safety
-        n_init=n_init_k,
-        n_jobs=n_jobs_for_kmeans # Pass num_processes_for_algo_local as n_jobs
+        n_init=n_init_k
+        # n_jobs argument is not taken by KMeans constructor directly
     )
-    labels_k = kmeans.fit_predict(X_k)
+    
+    labels_k = None
+    # Use joblib.parallel_backend to control parallelism for KMeans n_init runs
+    with joblib.parallel_backend('loky', n_jobs=n_jobs_for_context):
+        labels_k = kmeans.fit_predict(X_k)
+        
     current_score_k = -1.0 # Initialize as float
-    if len(set(labels_k)) > 1:
+    if labels_k is not None and len(set(labels_k)) > 1:
         try:
             current_score_k = silhouette_score(X_k, labels_k)
         except ValueError: 
@@ -60,7 +71,7 @@ def _evaluate_param_set_all(param_set_args):
     model = None
     try:
         # create_model_func_base is the specific `create_model_local` (closure) from Grid_search_all
-        model = create_model_func_base(params_from_grid) 
+        model = create_model_func_base(params_from_grid)
     except TypeError as te:
         print(f"[ERROR _evaluate_param_set_all] TypeError creating model for {clustering_algorithm} with grid params {params_from_grid} and num_processes={num_processes_for_algo_local}: {te}")
         return params_from_grid, -1.0, float('inf'), -1.0, -1.0 # Return default error scores
