@@ -26,7 +26,7 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
             'GMM_type': GMM_type, # GMM_type is specific to pre_clustering_GMM
-            'reg_covar': parameter_dict['reg_covar'],
+            # 'reg_covar': parameter_dict['reg_covar'],
             'n_init': parameter_dict.get('n_init', 1), # Ensure n_init is passed for general GMM too
             'num_processes_for_algo': num_processes_for_algo
         }
