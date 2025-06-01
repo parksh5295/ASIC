@@ -125,7 +125,7 @@ if __name__ == '__main__':
     # ../Dataset/load_dataset/CICIDS2017/MachineLearningCSV
     
     # This path is relative to the location of this script.
-    relative_input_csv_dir = "~/asic/Dataset/load_dataset/CICIDS2017/MachineLearningCSV"
+    relative_input_csv_dir = "../Dataset/load_dataset/CICIDS2017/MachineLearningCSV"
     
     # Output file path as specified by the user.
     # '~' will be expanded to the user's home directory.
