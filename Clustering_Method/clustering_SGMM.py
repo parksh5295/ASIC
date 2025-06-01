@@ -11,41 +11,33 @@ from Clustering_Method.clustering_nomal_identify import clustering_nomal_identif
 from Clustering_Method.clustering_GMM import fit_gmm_with_retry
 
 
-def clustering_SGMM(data, X, max_clusters, original_labels_aligned, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
-    # Define an initial parameter_dict that includes reg_covar
-    # This will be passed to Elbow_method, which might use its own default if this is None,
-    # but it's good practice to define it here for clarity and control.
-    initial_parameter_dict = {
-        'random_state': 42,
-        'reg_covar': 1e-6, # Default initial reg_covar for SGMM
-        'n_init': 30      # Changed default n_init for SGMM to 30
-    }
-
-    # Elbow_method now expects a parameter_dict and will use reg_covar from it for SGMM
-    sgmm_specific_max_clusters = min(max_clusters, 50) # SGMM only tests up to 50
-    after_elbow = Elbow_method(data, X, 'SGMM', sgmm_specific_max_clusters, parameter_dict=initial_parameter_dict.copy(), num_processes_for_algo=num_processes_for_algo)
-    n_clusters = after_elbow['optimal_cluster_n']
+def clustering_SGMM(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    sgmm_specific_max_clusters = min(max_clusters, 50) # GMM/SGMM is tested up to 50
     
-    # The parameter_dict returned by Elbow_method should contain the used random_state and reg_covar
-    parameter_dict_from_elbow = after_elbow['best_parameter_dict']
+    # Call Elbow_method to get optimal_cluster_n and best_parameter_dict
+    # Pass num_processes_for_algo to Elbow_method for its internal parallelization of k-value checks
+    # The parameter_dict from Elbow_method will contain 'n_init', 'random_state', 'reg_covar' etc.
+    after_elbow = Elbow_method(data, X, 'SGMM', sgmm_specific_max_clusters, num_processes_for_algo=num_processes_for_algo)
+    n_clusters = after_elbow['optimal_cluster_n']
+    parameter_dict = after_elbow['best_parameter_dict']
 
-    # Extract parameters for fit_gmm_with_retry, providing defaults
-    random_state_val = parameter_dict_from_elbow.get('random_state', 42)
-    reg_covar_init_val = parameter_dict_from_elbow.get('reg_covar', 1e-6) # Initial reg_covar for retry
-    n_init_val = parameter_dict_from_elbow.get('n_init', 1) # n_init for GMM
-    # max_reg_covar_val can be a fixed value or also from elbow if tuned
-    max_reg_val = parameter_dict_from_elbow.get('max_reg_covar', 100) 
+    # For final model fitting, use robust parameters from parameter_dict (especially n_init)
+    # And do not override max_iter (or set to None) to use GaussianMixture's default
+    final_n_init_val = parameter_dict.get('n_init', 30) # Default to 30 if not in dict for some reason
+    final_reg_covar_init_val = parameter_dict.get('reg_covar', 1e-6)
+    final_random_state = parameter_dict.get('random_state', 42) # Default random_state
 
-    # Apply Spherical GMM (SGMM) Clustering using the retry mechanism
-    sgmm, cluster_labels = fit_gmm_with_retry(
-        X,
+    # print(f"[DEBUG clustering_SGMM] Final k={n_clusters}, using n_init={final_n_init_val}, reg_covar={final_reg_covar_init_val}")
+
+    sgmm, clusters = fit_gmm_with_retry(
+        X, 
         n_components=n_clusters, 
         covariance_type='spherical', 
-        random_state=random_state_val,
-        reg_covar_init=reg_covar_init_val,
-        max_reg_covar_val=max_reg_val,
-        n_init_val=n_init_val,
-        num_processes_for_algo=num_processes_for_algo
+        random_state=final_random_state,
+        n_init_val=final_n_init_val, # Use full n_init for final model
+        reg_covar_init=final_reg_covar_init_val,
+        max_iter_override=None, # Use default max_iter for final model
+        num_processes_for_algo=num_processes_for_algo # Though not used in fit_gmm_with_retry
     )
     
     # Debug cluster id (X is the data used for clustering)
@@ -53,27 +45,37 @@ def clustering_SGMM(data, X, max_clusters, original_labels_aligned, global_known
     # aligned_original_labels shape will be printed inside CNI
     # print(f"[DEBUG SGMM main_clustering] Param for CNI 'aligned_original_labels' - Shape: {original_labels_aligned.shape}")
     
-    # Pass X (features used for clustering) and aligned_original_labels to CNI
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, original_labels_aligned, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
-    num_clusters_after_cni = len(np.unique(final_cluster_labels_from_cni))
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, clusters, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
+
+    # Update parameter_dict with specific SGMM parameters if needed, though most are from Elbow already
+    # parameter_dict['optimal_cluster_n_sgmm'] = n_clusters # Example
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni,
-        'Best_parameter_dict': parameter_dict_from_elbow
+        'Best_parameter_dict': parameter_dict 
     }
 
 
+# Precept Function for Clustering Count Tuning Loop (used by Elbow_method)
 def pre_clustering_SGMM(data, X, n_clusters, random_state, reg_covar=1e-6, n_init=1, num_processes_for_algo=1):
-    # Apply Spherical GMM (SGMM) Clustering using the retry mechanism
-    # For pre_clustering, usually a fixed n_init is fine, and default max_reg_covar
+    # For Elbow method, use smaller n_init and max_iter to speed up k selection.
+    # The main clustering_SGMM function will do a more thorough fit later.
+    quick_n_init = 5  # Reduced n_init for speed during Elbow
+    quick_max_iter = 50 # Reduced max_iter for speed during Elbow
+
+    # print(f"[DEBUG pre_clustering_SGMM] k={n_clusters}, using quick_n_init={quick_n_init}, quick_max_iter={quick_max_iter}, reg_covar={reg_covar}")
+
+    # Original n_init received (e.g. 30 from Elbow_method) is now overridden by quick_n_init for this pre-clustering step.
+    # The reg_covar is passed as is from Elbow_method's parameter_dict.
     sgmm, cluster_labels = fit_gmm_with_retry(
-        X,
+        X, 
         n_components=n_clusters, 
         covariance_type='spherical', 
-        random_state=random_state,
-        reg_covar_init=reg_covar, # Use the reg_covar passed to this function as initial for retry
-        n_init_val=n_init,       # Use the n_init passed to this function
-        num_processes_for_algo=num_processes_for_algo
+        random_state=random_state, 
+        reg_covar_init=reg_covar, # Use reg_covar passed from Elbow
+        n_init_val=quick_n_init,    # Use smaller n_init for pre-clustering
+        max_iter_override=quick_max_iter, # Use smaller max_iter for pre-clustering
+        num_processes_for_algo=num_processes_for_algo # Though not used in fit_gmm_with_retry
     )
 
     # predict_SGMM = clustering_nomal_identify(data, cluster_labels, n_clusters)

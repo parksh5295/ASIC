@@ -18,7 +18,8 @@ def Elbow_choose_clustering_algorithm(data, X, clustering_algorithm, n_clusters,
     if clustering_algorithm == 'Kmeans':
         algorithm_params = {
             'random_state': parameter_dict['random_state'],
-            'n_init': parameter_dict['n_init'],
+            # 'n_init': parameter_dict['n_init'],
+            'n_init': 10, # Use a smaller, fixed n_init for faster k selection in Elbow for K-Means
             'num_processes_for_algo': num_processes_for_algo
         }
         clustering = pre_clustering_func(data, X, n_clusters, **algorithm_params)
@@ -263,9 +264,9 @@ def _calculate_score_for_k(args_tuple):
         # Pass num_processes_for_algo_local to Elbow_choose_clustering_algorithm
         clustering_result = Elbow_choose_clustering_algorithm(data_local, X_local, clustering_algorithm_local, k, current_parameter_dict_local, num_processes_for_algo=num_processes_for_algo_local)
         
-        if clustering_result is None or 'before_labeling' not in clustering_result:
-            print(f"Warning: Clustering failed or returned unexpected result for k={k}. Using inf score.")
-            return k, score_val # score_val is already np.inf
+        if clustering_result is None or 'before_labeling' not in clustering_result or clustering_result['before_labeling'] is None:
+            print(f"Warning: Clustering failed or returned no model for k={k} with {clustering_algorithm_local}. Using inf score.")
+            return k, np.inf # score_val is already np.inf or explicitly set
             
         clustering_model = clustering_result['before_labeling']
         
@@ -274,18 +275,39 @@ def _calculate_score_for_k(args_tuple):
 
         temp_score = None
         if clustering_algorithm_local in ['GMM', 'SGMM']:
-            if hasattr(clustering_model, 'bic'):
-                temp_score = clustering_model.bic(X_local)
+            if hasattr(clustering_model, 'bic') and callable(getattr(clustering_model, 'bic')):
+                try:
+                    temp_score = clustering_model.bic(X_local)
+                except Exception as e_bic:
+                    print(f"Warning: Error calling bic() for {clustering_algorithm_local} model at k={k}: {e_bic}")
             else:
-                print(f"Warning: BIC not available for {clustering_algorithm_local} model at k={k}.")
-        else:
+                print(f"Warning: bic() method not available or not callable for {clustering_algorithm_local} model at k={k}.")
+        elif clustering_algorithm_local == 'CK':
+            if hasattr(clustering_model, 'silhouette_score_'):
+                silhouette_val = clustering_model.silhouette_score_
+                if silhouette_val is not None and np.isfinite(silhouette_val):
+                    # Silhouette Score is in [-1, 1], higher is better.
+                    # To make it compatible with Elbow (lower is better & positive slope for elbow point):
+                    # Transform to [0, 2] where 0 is best.
+                    temp_score = 1.0 - silhouette_val 
+                else:
+                    print(f"Warning: Silhouette score is None or invalid for CK model at k={k} (value: {silhouette_val}). Using inf score for this k.")
+            else:
+                print(f"Warning: silhouette_score_ attribute not available for CK model at k={k}. Using inf score for this k.")
+        else: # K-Means, etc.
             if hasattr(clustering_model, 'inertia_'):
-                temp_score = clustering_model.inertia_
+                inertia_val = clustering_model.inertia_
+                if inertia_val is not None and np.isfinite(inertia_val):
+                    temp_score = inertia_val
+                else:
+                    print(f"Warning: Inertia is None or invalid for {clustering_algorithm_local} model at k={k} (value: {inertia_val}). Using inf score for this k.")
             else:
-                print(f"Warning: Inertia not available for {clustering_algorithm_local} model at k={k}.")
+                print(f"Warning: inertia_ attribute not available for {clustering_algorithm_local} model at k={k}. Using inf score for this k.")
         
-        if temp_score is not None:
+        if temp_score is not None and np.isfinite(temp_score):
             score_val = temp_score
+        else:
+            score_val = np.inf # Ensure bad score if temp_score ended up None or non-finite
             
     except np.linalg.LinAlgError as e:
         print(f"LinAlgError for k={k} with {clustering_algorithm_local}: {e}. Using inf score.")

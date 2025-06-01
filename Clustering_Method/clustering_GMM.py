@@ -244,26 +244,35 @@ def pre_clustering_GMM(data, X, n_clusters, random_state, GMM_type, n_init=30, n
 
 
 # Functions to automatically update reg_covar to avoid errors
-def fit_gmm_with_retry(X, n_components, covariance_type='full', random_state=None, reg_covar_init=1e-6, max_reg_covar_val=100, n_init_val=1, num_processes_for_algo=1):
+def fit_gmm_with_retry(X, n_components, covariance_type='full', random_state=None, 
+                       reg_covar_init=1e-6, max_reg_covar_val=100, 
+                       n_init_val=1, num_processes_for_algo=1, # num_processes_for_algo is not used here
+                       max_iter_override=None): # Added max_iter_override
     reg_covar = reg_covar_init
     last_exception = None # Variable to store the last exception encountered
 
     while reg_covar <= max_reg_covar_val:
         try:
-            gmm = GaussianMixture(
-                n_components=n_components,
-                covariance_type=covariance_type,
-                random_state=random_state,
-                reg_covar=reg_covar,
-                n_init=n_init_val
+            gmm_params = {
+                'n_components': n_components,
+                'covariance_type': covariance_type,
+                'random_state': random_state,
+                'reg_covar': reg_covar,
+                'n_init': n_init_val
                 # num_processes_for_algo is not directly used by GaussianMixture as it lacks n_jobs
-            )
+            }
+            if max_iter_override is not None:
+                gmm_params['max_iter'] = max_iter_override
+            
+            # print(f"[DEBUG fit_gmm_with_retry] Attempting GMM with params: {gmm_params}") # Optional debug
+            gmm = GaussianMixture(**gmm_params)
             cluster_labels = gmm.fit_predict(X)
+            # print(f"[DEBUG fit_gmm_with_retry] GMM fit successful with reg_covar={reg_covar:.1e}") # Optional debug
             return gmm, cluster_labels
         except ValueError as e:
             last_exception = e # Store the exception
             if "fitting component type" in str(e) or "singular covariance" in str(e):
-                print(f"[Warning] GMM (cov_type={covariance_type}, n_init={n_init_val}, n_comp={n_components}) retrying. Failed with reg_covar={reg_covar:.1e}. Error: {e}")
+                print(f"[Warning] GMM (cov_type={covariance_type}, n_init={n_init_val}, n_comp={n_components}, max_iter_override={max_iter_override}) retrying. Failed with reg_covar={reg_covar:.1e}. Error: {e}")
                 reg_covar *= 10
             else:
                 # If it's a different ValueError, re-raise it immediately

@@ -243,88 +243,145 @@ def ck_predict(X_new, cntr, cov_matrices, m=2):
 
 
 def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_normal_samples_pca=None, threshold_value=0.3, num_processes_for_algo=1):
+    # Pass num_processes_for_algo to Elbow_method
     after_elbow = Elbow_method(data, X, 'CK', max_clusters, num_processes_for_algo=num_processes_for_algo)
     n_clusters = after_elbow['optimal_cluster_n']
     parameter_dict = after_elbow['best_parameter_dict']
-    n_init_for_ck = parameter_dict.get('n_init', 10) # Use n_init from elbow or default to 10 for CK
-
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck, num_processes_for_algo=num_processes_for_algo)
     
-    if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
-        print("[ERROR clustering_CK] tune_epsilon_for_ck returned no valid result. Cannot proceed.")
-        # Handle error appropriately, e.g., return a dict indicating failure or raise exception
+    # For the final clustering after k is determined, use a proper n_init from parameter_dict
+    # n_init in parameter_dict is likely from Elbow_method's base_parameter_dict (e.g., 30)
+    # or could be overridden if parameter_dict was passed to Elbow_method.
+    final_n_init_for_ck = parameter_dict.get('n_init', 30) # Use a robust n_init for final model
+
+    # print(f"[DEBUG clustering_CK] Final k={n_clusters}, using n_init={final_n_init_for_ck} for epsilon tuning.")
+
+    # Re-tune epsilon with the optimal k and robust n_init
+    # Epsilon candidates can be the default or passed via parameter_dict if needed
+    epsilon_candidates_final = parameter_dict.get('epsilon_candidates_ck', [1e-7, 1e-6, 1e-5, 1e-4])
+
+    best_params_from_final_tune = tune_epsilon_for_ck(X, n_clusters, 
+                                                      epsilon_candidates=epsilon_candidates_final,
+                                                      n_init=final_n_init_for_ck, # Use full n_init
+                                                      num_processes_for_algo=num_processes_for_algo)
+
+    if best_params_from_final_tune[0] is None: # Check if cntr is None (tuning failed)
+        print(f"Error: Final Epsilon tuning failed for CK with k={n_clusters}. Cannot proceed with labeling.")
+        # Return a structure indicating failure, or raise an error
         return {
-            'Cluster_labeling': np.array([]),
-            'Best_parameter_dict': parameter_dict,
-            'Error': 'CK clustering failed due to no valid result from tuning.'
+            'Cluster_labeling': np.array([-1] * len(X)) if X is not None and len(X) > 0 else np.array([]), # Or handle as per error strategy
+            'Best_parameter_dict': {
+                'optimal_cluster_n': n_clusters, 
+                'epsilon_tuning_failed': True,
+                'final_n_init_for_ck': final_n_init_for_ck,
+                **parameter_dict # Include other params from Elbow
+            }
         }
 
-    cntr, u, d, fpc, cov_matrices, best_epsilon = ck_results
-    parameter_dict['epsilon_scale'] = best_epsilon
-    parameter_dict['n_init_ck_actual'] = n_init_for_ck
-
-    # Assign clusters based on maximum membership
-    cluster_labels = np.argmax(u, axis=0)
+    cntr_final, u_final, _, _, _, best_epsilon_final = best_params_from_final_tune
+    
+    final_labels = np.argmax(u_final, axis=0)
 
     # Debug cluster id (X is the data used for clustering)
-    print(f"\n[DEBUG CK main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape}")
+    print(f"\n[DEBUG CK main_clustering] Param for CNI 'data_features_for_clustering' (X) - Shape: {X.shape if X is not None else 'None'}")
     # aligned_original_labels shape will be printed inside CNI
     # print(f"[DEBUG CK main_clustering] Param for CNI 'aligned_original_labels' - Shape: {aligned_original_labels.shape}")
     
-    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, cluster_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
+    # Pass X (features used for clustering) and aligned_original_labels to CNI
+    final_cluster_labels_from_cni = clustering_nomal_identify(X, aligned_original_labels, final_labels, n_clusters, global_known_normal_samples_pca=global_known_normal_samples_pca, threshold_value=threshold_value, num_processes_for_algo=num_processes_for_algo)
+
+    # Update parameter_dict with the chosen epsilon and other relevant final CK params
+    parameter_dict['optimal_cluster_n_ck'] = n_clusters # Renaming to avoid clash if 'optimal_cluster_n' is generic
+    parameter_dict['best_epsilon_ck'] = best_epsilon_final
+    parameter_dict['final_n_init_for_ck'] = final_n_init_for_ck
+    # Add more if needed, e.g., FPC of final model
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni,
-        'Best_parameter_dict': parameter_dict
+        'Best_parameter_dict': parameter_dict 
     }
 
 
-def pre_clustering_CK(data, X, n_clusters, n_init_for_ck=30, num_processes_for_algo=1):
-    ck_results = tune_epsilon_for_ck(X, c=n_clusters, n_init=n_init_for_ck, num_processes_for_algo=num_processes_for_algo)
+def pre_clustering_CK(data, X, n_clusters, n_init_for_ck=30, num_processes_for_algo=1): # n_init_for_ck for Elbow call
+    # For Elbow method, use a much smaller n_init for tune_epsilon_for_ck to speed up k selection
+    # The main clustering_CK function will do a more thorough epsilon tuning later.
+    quick_n_init = 3 # Significantly reduced n_init for speed during Elbow
+    
+    # Epsilon candidates can be fixed here or made configurable if needed for pre_clustering
+    epsilon_candidates_pre = [1e-7, 1e-6, 1e-5, 1e-4] # Standard set for pre-check
 
-    if ck_results[0] is None: # Check if tune_epsilon_for_ck failed
-        print(f"[ERROR pre_clustering_CK] tune_epsilon_for_ck returned no valid result for n_clusters={n_clusters}. Cannot proceed.")
-        # For pre_clustering, it must return the expected dict structure or raise error
-        # Returning a structure that indicates failure but matches expected keys where possible
+    # print(f"[DEBUG pre_clustering_CK] k={n_clusters}, using quick_n_init={quick_n_init} for epsilon tuning.")
+
+    # best_params_tuple = (cntr, u, d, fpc, cov_matrices, epsilon)
+    best_ck_params_pre = tune_epsilon_for_ck(X, n_clusters, 
+                                             epsilon_candidates=epsilon_candidates_pre,
+                                             n_init=quick_n_init, # Use small n_init
+                                             num_processes_for_algo=num_processes_for_algo)
+
+    if best_ck_params_pre[0] is None: # cntr is None, tuning failed
+        # print(f"[WARN pre_clustering_CK] Epsilon tuning failed for k={n_clusters} with quick_n_init. Returning dummy model with bad score.")
+        # Return a dummy model instance that signifies failure / bad score for Elbow
+        # Ensure silhouette_score_ is something that Elbow_method's transformation (1.0 - score) results in a bad (large) score
+        # If silhouette is -1 (bad), 1.0 - (-1) = 2.0 (bad for min-seeking elbow)
+        dummy_model = CKFakeModel(None, None, 0, inertia_val=np.inf, silhouette_score_val=-1.0)
         return {
             'model_labels': np.array([]), 
             'n_clusters': n_clusters,
-            'before_labeling': None, # No model
-            'Error': 'CK pre_clustering failed.' 
+            'before_labeling': dummy_model
         }
-        
-    cntr, u, d, fpc, cov_matrices, best_epsilon = ck_results
 
-    # Assign clusters based on maximum membership
-    cluster_labels = np.argmax(u, axis=0)
+    cntr_res, u_res, _, fpc_res, cov_m_res, _ = best_ck_params_pre
+    
+    # Calculate labels from membership matrix u_res
+    model_labels = np.argmax(u_res, axis=0) if u_res is not None and u_res.shape[1] > 0 else np.array([])
 
-    # predict_CK = clustering_nomal_identify(data, cluster_labels, n_clusters)
-    # num_clusters = len(np.unique(predict_CK))  # Counting the number of clusters
+    # Calculate Silhouette Score for this k and chosen epsilon
+    silhouette_avg = -1.0 # Default bad score
+    if X is not None and model_labels.size > 0 and len(np.unique(model_labels)) >= 2 and len(model_labels) >=2 :
+        try:
+            silhouette_avg = silhouette_score(X, model_labels)
+        except ValueError: # Should be caught by unique labels check, but as a safeguard
+            # print(f"[WARN pre_clustering_CK] Silhouette score calculation failed for k={n_clusters}.")
+            pass # silhouette_avg remains -1.0
 
-    # Wrapping to write like a model
-    ck_model = CKFakeModel(cntr, cov_matrices, fpc)
+    # Create the model instance for Elbow_method
+    # inertia_val can be set to np.nan or None as it won't be used by Elbow for CK if we modify Elbow_method
+    ck_model_for_elbow = CKFakeModel(cntr_res, cov_m_res, fpc_res, 
+                                     inertia_val=None, # Not used by Elbow for CK if Elbow is modified
+                                     silhouette_score_val=silhouette_avg)
 
     return {
-        'model_labels' : cluster_labels,
-        'n_clusters' : n_clusters, # n_clusters requested
-        'before_labeling' : ck_model
+        'model_labels': model_labels,
+        'n_clusters': n_clusters, 
+        'before_labeling': ck_model_for_elbow # This model has silhouette_score_
     }
 
 # Make it look like a model for Elbow/tuning
 class CKFakeModel:
-    def __init__(self, cntr, cov_matrices, fpc):
+    def __init__(self, cntr, cov_matrices, fpc, inertia_val=None, silhouette_score_val=None): # Added inertia_val (optional) and silhouette_score_val
         self.cntr = cntr
         self.cov_matrices = cov_matrices
         self.fpc = fpc
-        self.inertia_ = 1 - fpc  # Just for Elbow_method compatibility
+        self.inertia_ = inertia_val # WCSS for potential future use or if other algos need it
+        self.silhouette_score_ = silhouette_score_val # Silhouette Score for Elbow_method with CK
+        # model_labels can be added if needed after argmax(u)
 
     def predict(self, X_new):
-        u = ck_predict(X_new, self.cntr, self.cov_matrices)
-        return np.argmax(u, axis=0)
+        if self.cntr is None or self.cov_matrices is None:
+            # print("[WARN CKFakeModel] Predict called on unfitted or incomplete model.")
+            # Depending on how X_new should be handled, either raise error or return default
+            # For now, let's assume it might return labels or memberships.
+            # This part needs to be robust if predict is actually used.
+            return np.array([]) # Placeholder, actual prediction logic might be needed if used by other parts.
+        
+        # Simplified: Actual prediction might involve ck_predict logic if memberships are needed.
+        # For Elbow, usually only the model object with scores is needed.
+        # If labels are needed from predict:
+        # u_new = ck_predict(X_new, self.cntr, self.cov_matrices, m=2) # Assuming m=2
+        # return np.argmax(u_new, axis=0)
+        pass # predict might not be strictly needed for Elbow if fit provides all info
 
-    def fit(self, X):
-        pass  # Already fitted
-
+    def fit(self, X): # fit is not directly called by Elbow, pre_clustering handles it.
+        pass
 
 # Functions for stabilizing CK covariance
 def regularize_covariance(cov, epsilon_scale=1e-5):
