@@ -3,7 +3,7 @@
 
 import pandas as pd
 import random
-from Dataset_Choose_Rule.CICIDS2017_csv_selector import select_csv_file
+# from Dataset_Choose_Rule.CICIDS2017_csv_selector import select_csv_file # Commented out
 from Dataset_Choose_Rule.dtype_optimize import infer_dtypes_safely, _post_process_specific_datasets
 
 
@@ -13,7 +13,9 @@ def file_path_line_nonnumber(file_type, file_number=1): # file_number is not use
     elif file_type in ['ARP', 'MitM', 'Kitsune']:
         file_path = "../Dataset/load_dataset/ARP_MitM_Kitsune/ARP_MitM_dataset.csv/ARP_MitM_dataset_final.csv"
     elif file_type in ['CICIDS2017', 'CICIDS']:
-        file_path, file_number =  select_csv_file()
+        # file_path, file_number =  select_csv_file() # Original line
+        file_path = "~/asic/Dataset/load_dataset/CICIDS2017/CICIDS2017_all.csv" # Use unified CSV
+        file_number = 1 # Default file_number, as select_csv_file used to return it
     elif file_type == 'netML' :
         file_path = "../Dataset/load_dataset/netML/netML_dataset.csv"
     elif file_type in ['NSL-KDD', 'NSL_KDD']:

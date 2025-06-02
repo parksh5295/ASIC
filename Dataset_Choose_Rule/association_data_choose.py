@@ -1,5 +1,6 @@
 # Association training, functions for selecting test datasets
-from Dataset_Choose_Rule.CICIDS2017_csv_selector import select_csv_file
+# from Dataset_Choose_Rule.CICIDS2017_csv_selector import select_csv_file # Commented out
+import pandas as pd # Added for potential future use if we directly read CSV here
 
 
 # For train
@@ -9,7 +10,9 @@ def file_path_line_association(file_type, file_number=1): # file_number is not u
     elif file_type in ['ARP', 'MitM', 'Kitsune']:
         file_path = "../Dataset/load_dataset/ARP_MitM_Kitsune/ARP_MitM_dataset.csv/ARP_MitM_dataset_final.csv"
     elif file_type in ['CICIDS2017', 'CICIDS']:
-        file_path, file_number =  select_csv_file()
+        # file_path, file_number =  select_csv_file() # Original line
+        file_path = "~/asic/Dataset/load_dataset/CICIDS2017/CICIDS2017_all.csv" # Use unified CSV
+        file_number = 1 # Default file_number, as select_csv_file used to return it
     elif file_type == 'netML' :
         file_path = "../Dataset/load_dataset/netML/netML_dataset.csv"
     elif file_type in ['NSL-KDD', 'NSL_KDD']:
@@ -33,7 +36,9 @@ def file_path_line_signatures(file_type, file_number=1): # file_number is not us
     elif file_type in ['ARP', 'MitM', 'Kitsune']:
         file_path = "../Dataset/load_dataset/ARP_MitM_Kitsune/ARP_MitM_dataset.csv/ARP_MitM_dataset_final.csv"
     elif file_type in ['CICIDS2017', 'CICIDS']:
-        file_path, file_number =  select_csv_file()
+        # file_path, file_number =  select_csv_file() # Original line
+        file_path = "~/asic/Dataset/load_dataset/CICIDS2017/CICIDS2017_all.csv" # Use unified CSV
+        file_number = 1 # Default file_number
     elif file_type == 'netML' :
         file_path = "../Dataset/load_dataset/netML/netML_dataset.csv"
     elif file_type in ['NSL-KDD', 'NSL_KDD']:
