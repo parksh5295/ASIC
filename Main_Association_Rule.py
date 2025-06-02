@@ -218,7 +218,7 @@ def main():
     # 4. Set association statements (confidence ratios, etc.)
     start = time.time()
 
-    if file_type in ['CICModbus23', 'CICModbus']:
+    if file_type in ['CICModbus23', 'CICModbus', 'NSL-KDD', 'NSL_KDD']:
         min_support = 0.1
     else:
         min_support = 0.2
@@ -236,7 +236,10 @@ def main():
     best_confidence = 0.8    # Initialize the variables to change
     # Considering anomalies and nomals simultaneously
 
-    confidence_values = np.arange(0.75, 0.96, 0.05)
+    if file_type in ['CICModbus23', 'CICModbus']:
+        confidence_values = np.arange(0.1, 0.96, 0.05)
+    else:
+        confidence_values = np.arange(0.75, 0.96, 0.05)
     best_recall = 0
 
     print("min_support: ", min_support)
