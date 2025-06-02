@@ -238,6 +238,8 @@ def main():
 
     if file_type in ['CICModbus23', 'CICModbus']:
         confidence_values = np.arange(0.1, 0.96, 0.05)
+    elif file_type in ['NSL-KDD', 'NSL_KDD']:
+        confidence_values = np.arange(0.5, 0.96, 0.05)
     else:
         confidence_values = np.arange(0.75, 0.96, 0.05)
     best_recall = 0
