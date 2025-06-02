@@ -127,6 +127,8 @@ def main():
         data['label'] = data['Label'].apply(lambda x: 0 if x == 'BENIGN' else 1)
     elif file_type == 'DARPA98':
         data['label'] = data['Class'].apply(lambda x: 0 if x == '-' else 1)
+    elif file_type in ['CICIDS2017', 'CICIDS']:
+        data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
     elif file_type in ['CICModbus23', 'CICModbus']:
         data['label'] = data['Attack'].apply(lambda x: 0 if x.strip() == 'Baseline Replay: In position' else 1)
     elif file_type in ['IoTID20', 'IoTID']:
@@ -218,7 +220,7 @@ def main():
     # 4. Set association statements (confidence ratios, etc.)
     start = time.time()
 
-    if file_type in ['CICModbus23', 'CICModbus', 'NSL-KDD', 'NSL_KDD']:
+    if file_type in ['CICModbus23', 'CICModbus']:
         min_support = 0.1
     else:
         min_support = 0.2
@@ -238,8 +240,10 @@ def main():
 
     if file_type in ['CICModbus23', 'CICModbus']:
         confidence_values = np.arange(0.1, 0.96, 0.05)
+    '''
     elif file_type in ['NSL-KDD', 'NSL_KDD']:
         confidence_values = np.arange(0.5, 0.96, 0.05)
+    '''
     else:
         confidence_values = np.arange(0.75, 0.96, 0.05)
     best_recall = 0
