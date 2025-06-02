@@ -171,7 +171,7 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
     if not all_frequent_items_from_chunks:
         print("    [Debug SaM MergePhase] No frequent items found after Split Phase. Returning empty list.")
         return []
-
+    
     # Merge step: Create global frequent itemset
     print(f"    [Debug SaM MergePhase] Starting Merge Phase: Generating globally frequent 1-itemsets from chunk results...")
     rule_set = set()
@@ -305,14 +305,14 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
                 for antecedent_tuple in combinations(itemset, i):
                     antecedent = frozenset(antecedent_tuple)
                     # consequent = itemset - antecedent # Not directly used for rule_dict key
-                    
-                    ant_support = miner.get_support(antecedent)
-                    if ant_support > 0:
+                                
+                                ant_support = miner.get_support(antecedent)
+                                if ant_support > 0:
                         itemset_support = miner.get_support(itemset) # Get support of full itemset for confidence
                         confidence = itemset_support / ant_support
-                        
-                        if confidence >= min_confidence:
-                            rule_dict = {}
+                                    
+                                    if confidence >= min_confidence:
+                                        rule_dict = {}
                             # The original code uses antecedent for rule_dict, this seems to be the standard.
                             for rule_item_str in antecedent:
                                 key, value = rule_item_str.split('=')
@@ -321,10 +321,10 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
                                     rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
                                 except ValueError:
                                     rule_dict[key] = value # Keep as string
-                            
-                            rule_tuple = tuple(sorted(rule_dict.items()))
+                                        
+                                        rule_tuple = tuple(sorted(rule_dict.items()))
                             if rule_tuple not in rule_set:
-                                rule_set.add(rule_tuple)
+                                        rule_set.add(rule_tuple)
                                 # if len(rule_set) % 500 == 0:
                                 #     print(f"          [Debug SaM MergeLoop-{level_count}] Added rule (total {len(rule_set)}): {rule_tuple}, Conf: {confidence:.4f}")
         '''

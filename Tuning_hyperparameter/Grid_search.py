@@ -364,7 +364,7 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None, num
             }
             return GMeans(**model_constructor_params)
         create_model = create_model_local
-    
+
     elif clustering_algorithm == 'DBSCAN':
         param_grid = {'eps': np.arange(0.1, 2.1, 0.05), 'min_samples': list(range(2, 20, 2))}
         def create_model_local(params_local_grid):
@@ -464,7 +464,7 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None, num
     # The redundant 'elif clustering_algorithm == KMeans' block that defined create_model_local for KMeans HAS BEEN REMOVED.
     # KMeans is handled by the special section below.
 
-    else: 
+    else:
         # This 'else' is now for algorithms NOT KMeans and NOT explicitly configured above.
         # This case should ideally not be hit if Data_Labeling calls Grid_search_all only for algos defined here or KMeans.
         print(f"Clustering algorithm '{clustering_algorithm}' is not KMeans and not explicitly configured for param_grid in Grid_search_all. Using default parameters.")

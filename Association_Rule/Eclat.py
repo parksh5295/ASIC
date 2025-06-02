@@ -174,7 +174,7 @@ def process_eclat_subtree(prefix_itemset, items_to_process_with_tids, min_suppor
                 stack.append((new_itemset_formed, potential_next_extensions))
                 
     return local_frequent_itemsets, local_rule_set
-
+            
 
 # Eclat Algorithm: Finding infrequent itemsets using set intersection operations
 def eclat(df, min_support=0.5, confidence_threshold=0.8, num_processes=None):
@@ -286,7 +286,7 @@ def eclat_original_sequential(df, min_support=0.5, confidence_threshold=0.8):
     frequent_itemsets_final_set = set()
     rule_set = set()
     stack = [(set(), list(itemsets))] # prefix, items_to_process (list of frozensets)
-
+    
     while stack:
         prefix, items_to_process_list = stack.pop()
         
@@ -314,12 +314,12 @@ def eclat_original_sequential(df, min_support=0.5, confidence_threshold=0.8):
 
                 # Rule generation
                 if len(new_prefix) > 1:
-                    for base_size in range(1, len(new_prefix)):
+                for base_size in range(1, len(new_prefix)):
                         for base_tuple in itertools.combinations(new_prefix, base_size):
                             base_set = frozenset(base_tuple)
-                            confidence = get_confidence_optimized(tid_map, base_set, new_prefix)
-                            if confidence >= confidence_threshold:
-                                rule_dict = {}
+                        confidence = get_confidence_optimized(tid_map, base_set, new_prefix)
+                        if confidence >= confidence_threshold:
+                            rule_dict = {}
                                 for pair_str in new_prefix: 
                                     key, value = pair_str.split('=',1)
                                     try:

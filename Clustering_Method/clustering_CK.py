@@ -297,7 +297,7 @@ def clustering_CK(data, X, max_clusters, aligned_original_labels, global_known_n
 
     return {
         'Cluster_labeling': final_cluster_labels_from_cni,
-        'Best_parameter_dict': parameter_dict 
+        'Best_parameter_dict': parameter_dict
     }
 
 
