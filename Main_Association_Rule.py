@@ -113,6 +113,9 @@ def main():
     # cut_type = str(input("Enter the data cut type: "))
     cut_type = 'all'
     data = file_cut(file_type, file_path, cut_type)
+    # ADDED FOR DEBUGGING: Print column names after loading
+    if file_type == 'NSL-KDD':
+        print(f"DEBUG_NSL-KDD_COLUMNS: Columns in 'data' DataFrame after file_cut for NSL-KDD: {data.columns.tolist()}")
 
     timing_info['1_load_data'] = time.time() - start
     logger.info(f"Loading data from file: {file_path}")
@@ -124,16 +127,27 @@ def main():
     if file_type in ['MiraiBotnet', 'NSL-KDD']:
         data['label'], _ = anomal_judgment_nonlabel(file_type, data)
     elif file_type == 'netML':
-        data['label'] = data['Label'].apply(lambda x: 0 if x == 'BENIGN' else 1)
-    elif file_type == 'DARPA98':
-        data['label'] = data['Class'].apply(lambda x: 0 if x == '-' else 1)
-    elif file_type in ['CICIDS2017', 'CICIDS']:
         data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+    elif file_type == 'DARPA98':
+        data['label'] = data['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
+    elif file_type in ['CICIDS2017', 'CICIDS']:
+        print(f"INFO: Processing labels for {file_type}. Mapping BENIGN to 0, others to 1.")
+        # Ensure 'Label' column exists
+        if 'Label' in data.columns:
+            data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+            logger.info(f"Applied BENIGN/Attack mapping for {file_type}.")
+        else:
+            logger.error(f"ERROR: 'Label' column not found in data for {file_type}. Cannot apply labeling.")
+            # Potentially raise an error or exit if label column is critical and missing
+            # For now, it will proceed and might fail later if 'label' is expected
+            data['label'] = 0 # Default to 0 or some other placeholder if Label is missing
     elif file_type in ['CICModbus23', 'CICModbus']:
-        data['label'] = data['Attack'].apply(lambda x: 0 if x.strip() == 'Baseline Replay: In position' else 1)
+        data['label'] = data['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
     elif file_type in ['IoTID20', 'IoTID']:
-        data['label'] = data['Label'].apply(lambda x: 0 if x.strip() == 'Normal' else 1)
+        data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
     else:
+        # This is a fallback, ensure your file_type is covered above for specific handling
+        logger.warning(f"WARNING: Using generic anomal_judgment_label for {file_type}.")
         data['label'] = anomal_judgment_label(data)
 
     timing_info['2_anomal_judgment'] = time.time() - start
