@@ -218,8 +218,10 @@ def main():
     # 4. Set association statements (confidence ratios, etc.)
     start = time.time()
 
-
-    min_support = 0.2
+    if file_type in ['CICModbus23', 'CICModbus']:
+        min_support = 0.1
+    else:
+        min_support = 0.2
 
     # Use a lower min_support value for NSL-KDD
     if file_type in ['NSL-KDD', 'NSL_KDD']:
