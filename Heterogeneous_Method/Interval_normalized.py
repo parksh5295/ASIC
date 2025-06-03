@@ -78,6 +78,16 @@ def Heterogeneous_Interval_Inverse(data, file_type, regul):
         
 
     elif regul in ['N', 'n']:
+        # For 'netML' dataset, reset index to avoid 'cannot reindex on an axis with duplicate labels' error
+        if file_type == 'netML':
+            print(f"[Hetero_Interval_Inverse] Original data index type for netML: {type(data.index)}")
+            # Add a check to see if the index is already unique or a RangeIndex
+            if not data.index.is_unique:
+                print(f"[Hetero_Interval_Inverse] Resetting index for netML dataset as it's not unique. Original index example: {data.index[:5].tolist()}")
+                data = data.reset_index(drop=True)
+                print(f"[Hetero_Interval_Inverse] Index reset for netML. New index example: {data.index[:5].tolist()}")
+            else:
+                print(f"[Hetero_Interval_Inverse] Index for netML is already unique. No reset needed. Index example: {data.index[:5].tolist()}")
         data_list, category_mapping = Heterogeneous_Feature_named_combine(categorical_features, time_features, packet_length_features, count_features, binary_features, data)
 
         full_group_mapping_info = {}  # a dict to hold the mapping information for all features
