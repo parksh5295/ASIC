@@ -358,31 +358,35 @@ def Heterogeneous_Feature_named_combine(categorical_features, time_features, pac
             categorical_mapping_df = pd.DataFrame(formatted_columns)
 
     if not time_features:
-        # 수정: np.empty 대신 빈 DataFrame 할당 (인덱스 유지)
+        # Fix: Allocate empty DataFrame instead of np.empty (keep index)
         time_data = pd.DataFrame(index=df_index_to_use)
     else:
         # Ensure selection uses the correct index
         time_data = data.loc[df_index_to_use, time_features].copy()
 
     if not packet_length_features:
-        # 수정: np.empty 대신 빈 DataFrame 할당 (인덱스 유지)
         packet_length_data = pd.DataFrame(index=df_index_to_use)
     else:
         packet_length_data = data.loc[df_index_to_use, packet_length_features].copy()
 
     if not count_features:
-        # 수정: np.empty 대신 빈 DataFrame 할당 (인덱스 유지)
         packet_count_data = pd.DataFrame(index=df_index_to_use)
     else:
         packet_count_data = data.loc[df_index_to_use, count_features].copy()
 
     if not binary_features:
-        # 수정: np.empty 대신 빈 DataFrame 할당 (인덱스 유지)
         flow_flag_data = pd.DataFrame(index=df_index_to_use)
-    else:
-        flow_flag_data = data.loc[df_index_to_use, binary_features].copy()
-        binary_mapping_info = {}
-        for col in binary_features:
+        binary_mapping_info = {} # Initialize to prevent NameError if binary_features is empty
+    else: # binary_features list is not empty
+        # Filter binary_features to only include columns present in the data
+        existing_binary_features = [col for col in binary_features if col in data.columns]
+
+        # Use the filtered list to create flow_flag_data, preventing KeyError
+        flow_flag_data = data.loc[df_index_to_use, existing_binary_features].copy()
+        
+        binary_mapping_info = {} # Initialize as in original code structure
+        # Populate binary_mapping_info using only the existing binary features
+        for col in existing_binary_features:
              binary_mapping_info[col] = {0: 0, 1: 1}
 
         max_len = max(len(mapping) for mapping in binary_mapping_info.values()) if binary_mapping_info else 0
