@@ -43,11 +43,25 @@ def anomal_judgment_nonlabel(data_type, data):
             label_col_name = 'class'
         elif 'Class' in data.columns: # Fallback
             label_col_name = 'Class'
-        
+            
         if label_col_name:
-            data_line = [label_col_name]
-            result = data[label_col_name].copy() # Return the original string label Series for NSL-KDD
-                                                 # This will be converted to numeric 0/1 later in Main_Association_Rule.py
+            data_line = [label_col_name] # Keep track of the original column name if needed
+            
+            # Convert string labels ('normal', various attacks) to 0/1
+            def convert_nsl_kdd_label_internal(label_val):
+                if isinstance(label_val, str) and label_val.lower() == 'normal':
+                    return 0
+                elif isinstance(label_val, str): # Any other string is an attack/anomaly
+                    return 1
+                elif isinstance(label_val, (int, float)): # If it's already numeric
+                    # Ensure 0 for normal (specifically if input is 0.0 or 0), 1 for anomaly (non-zero)
+                    return int(label_val != 0) 
+                # Default for unexpected types or if not string/int/float after checks
+                print(f"[WARN AnomalJudgment] Unexpected label type or value in NSL-KDD conversion: {label_val}, type {type(label_val)}. Treating as anomaly (1).")
+                return 1 
+
+            result = data[label_col_name].apply(convert_nsl_kdd_label_internal).astype(int)
+            print(f"DEBUG NSL-KDD: Labels converted to 0/1. Value counts: {result.value_counts(dropna=False).to_dict() if hasattr(result, 'value_counts') else 'N/A'}")
         else:
             raise ValueError(f"For NSL-KDD, no 'label', 'class', or 'Class' column found. Available columns: {data.columns.tolist()}")
     else:

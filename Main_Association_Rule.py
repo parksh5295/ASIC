@@ -124,7 +124,7 @@ def main():
     # 2. Handling judgments of Anomal or Nomal
     start = time.time()
 
-    if file_type in ['MiraiBotnet', 'NSL-KDD']:
+    if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
         data['label'], _ = anomal_judgment_nonlabel(file_type, data)
     elif file_type == 'netML':
         data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
