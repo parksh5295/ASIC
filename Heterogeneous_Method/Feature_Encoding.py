@@ -235,7 +235,7 @@ def Heterogeneous_Feature_named_featrues(file_type):
             'FIN Flag Count', 'SYN Flag Count', 'RST Flag Count', 'PSH Flag Count',
             'ACK Flag Count', 'URG Flag Count', 'CWE Flag Count', 'ECE Flag Count',
             'Fwd PSH Flags', 'Bwd PSH Flags',
-            'Fwd URG Flags', 'Bwd URG Flags'
+            # 'Fwd URG Flags', 'Bwd URG Flags'
         ]
 
     elif file_type in ['NSL-KDD', 'NSL_KDD']:
