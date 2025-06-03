@@ -192,7 +192,21 @@ def main():
     mapped_info_df.to_csv(mapped_info_save_path, index=False)
     print(f"Saved mapped_info_df to: {mapped_info_save_path}")
 
-    group_mapped_df['label'] = data['label']
+    # group_mapped_df['label'] = data['label']
+    if len(group_mapped_df) != len(data): # Add a length check
+        logger.critical(f"[{file_type}] CRITICAL: Length mismatch between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot reliably assign 'label'.")
+    else:
+        # Check for duplicate indices in group_mapped_df
+        if not group_mapped_df.index.is_unique: 
+            logger.info(f"[{file_type}] INFO: Index of group_mapped_df has duplicates. Resetting index and assigning 'label' via .values to align.")
+            # Reset index and assign 'label' via .values
+            group_mapped_df = group_mapped_df.reset_index(drop=True)
+            group_mapped_df['label'] = data['label'].values
+        else:
+            # Assign 'label' using standard pandas alignment
+            logger.info(f"[{file_type}] INFO: Index of group_mapped_df is unique. Assigning 'label' using standard pandas alignment.")
+            group_mapped_df['label'] = data['label']
+    
 
     # ===== Convert NSL-KDD string labels to numeric =====
     if file_type in ['NSL-KDD', 'NSL_KDD']:
