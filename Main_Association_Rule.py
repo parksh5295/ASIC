@@ -246,7 +246,7 @@ def main():
     if file_type in ['CICModbus23', 'CICModbus']:
         min_support = 0.1
     if file_type in ['DARPA98', 'DARPA']:
-        min_support = 0.1
+        min_support = 0.01
     else:
         min_support = 0.2
 
