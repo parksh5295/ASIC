@@ -1,53 +1,31 @@
-import argparse
-from Dataset_Choose_Rule.choose_amount_dataset import file_path_line_nonnumber, file_cut
 import pandas as pd
 
-def check_kitsune_label_distribution(file_number_to_test=1):
-    """Loads a specific Kitsune dataset file and prints its label distribution."""
-    file_type = "Kitsune"
-    print(f"\nTesting Kitsune dataset, file number: {file_number_to_test}")
+def read_recall_column(csv_file_path):
+    """
+    지정된 CSV 파일에서 'Recall' 컬럼을 읽어와 출력합니다.
 
+    Args:
+        csv_file_path (str): 읽어올 CSV 파일의 경로입니다.
+    """
     try:
-        file_path, _ = file_path_line_nonnumber(file_type, file_number_to_test) # Ignore the second return value with _.
-        # cut_type is assumed to be 'all' for Kitsune (see Data_Labeling.py logic)
-        # assumes file_cut function only works with file path and file type.
-        # You may need to adapt to the actual arguments of file_cut.
-        data = file_cut(file_type, file_path, 'all')
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return
+        # CSV 파일을 pandas DataFrame으로 읽어옵니다.
+        df = pd.read_csv(csv_file_path)
 
-    print("\n--- Kitsune Dataset Label Distribution Test ---")
-    if 'Label' in data.columns:
-        # The labels may not be numeric, so you may want to consider checking or converting them before value_counts().
-        # Here we assume that the Label column contains 0s and 1s in numeric form.
-        if pd.api.types.is_numeric_dtype(data['Label']):
-            label_counts = data['Label'].value_counts().sort_index()
-            print("Label counts in the loaded Kitsune dataset:")
-            print(label_counts)
-            if 0 not in label_counts:
-                print("WARNING: Label 0 (normal) is not present in the loaded data.")
-            else:
-                print(f"Count of Label 0 (normal): {label_counts.get(0, 0)}")
-            if 1 not in label_counts:
-                print("WARNING: Label 1 (anomalous) is not present in the loaded data.")
-            else:
-                print(f"Count of Label 1 (anomalous): {label_counts.get(1, 0)}")
+        # 'Recall' 컬럼이 파일에 있는지 확인합니다.
+        if 'Recall' in df.columns:
+            # 'Recall' 컬럼을 선택하여 출력합니다.
+            recall_data = df['Recall']
+            print("\n'Recall' 컬럼 데이터:")
+            print(recall_data)
         else:
-            print("ERROR: 'Label' column is not numeric. Cannot perform count for 0 and 1 directly.")
-            print("Actual label distribution:")
-            print(data['Label'].value_counts().sort_index())
+            print(f"오류: '{csv_file_path}' 파일에 'Recall' 컬럼이 없습니다.")
 
-    else:
-        print("ERROR: 'Label' column not found in the loaded Kitsune dataset.")
-    print("--- End of Kitsune Dataset Label Distribution Test ---\n")
+    except FileNotFoundError:
+        print(f"오류: 파일을 찾을 수 없습니다 - {csv_file_path}")
+    except Exception as e:
+        print(f"오류 발생: {e}")
 
-if __name__ == '__main__':
-    # Run the test against a specific file number.
-    # To test against multiple files, you can use a loop, for example.
-    # Or you can use argparse to get the file number from the command line.
-    parser = argparse.ArgumentParser(description='Test Kitsune Label Distribution')
-    parser.add_argument('--file_number', type=int, default=1, help='File number of the Kitsune dataset to test')
-    args = parser.parse_args()
-
-    check_kitsune_label_distribution(args.file_number) 
+if __name__ == "__main__":
+    # 읽어올 CSV 파일 경로 (사용자로부터 받은 경로)
+    csv_path = "D:\\AutoSigGen_withData\\Dataset_Paral\\signature\\MiraiBotnet\\MiraiBotnet_RARM_1_confidence_signature_train_ea15.csv"
+    read_recall_column(csv_path)
