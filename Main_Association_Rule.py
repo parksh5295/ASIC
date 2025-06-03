@@ -127,8 +127,8 @@ def main():
     if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
         data['label'], _ = anomal_judgment_nonlabel(file_type, data)
     elif file_type == 'netML':
-        print(f"[DEBUG netML MAR] Columns in 'data' DataFrame for netML before processing: {data.columns.tolist()}")
-        data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+        # print(f"[DEBUG netML MAR] Columns in 'data' DataFrame for netML before processing: {data.columns.tolist()}")
+        data['label'] = data[' Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
     elif file_type == 'DARPA98':
         data['label'] = data['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
     elif file_type in ['CICIDS2017', 'CICIDS']:
