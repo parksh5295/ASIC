@@ -175,6 +175,7 @@ def main():
     # regul = str(input("\nDo you want to Regulation? (Y/n): ")) # Whether to normalize or not
     regul = 'N'
 
+    print(f"[DEBUG MAR Hetero] Columns in 'data' df before choose_heterogeneous_method for {file_type}: {{data.columns.tolist()}}") # Debug print added
     embedded_dataframe, feature_list, category_mapping, data_list = choose_heterogeneous_method(data, file_type, heterogeneous_method, regul)
     print("embedded_dataframe: ", embedded_dataframe)
 
