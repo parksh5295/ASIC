@@ -3,49 +3,164 @@ import csv
 import ast
 import os
 import pandas as pd
+import multiprocessing # For parallel processing
+import numpy as np # For array_split if used
 from utils.class_row import anomal_class_data, nomal_class_data, without_label
 from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
-import multiprocessing
 from Heterogeneous_Method.separate_group_mapping import map_intervals_to_groups
 
 
-def evaluate_signature_task(signature, data, attack_type_column):
-    attack_type = signature['signature_name']['Signature_dict'].get(attack_type_column, 'Unknown')
-    return {
-        'Signature': signature['signature_name']['Signature_dict'],
-        'Identified Attack': attack_type
+# Helper function to check if a row matches a signature's conditions
+def row_matches_signature(row, signature_conditions, attack_type_column_name_in_signature_key):
+    # signature_conditions is the dict like {'Protocol': 'TCP', 'SrcPort': '80', ...}
+    for cond_key, cond_val_sig in signature_conditions.items():
+        # Skip metadata-like fields within the signature_conditions if they are not actual rule parts.
+        # attack_type_column_name_in_signature_key is the key used IN THE SIGNATURE to denote its intended attack type.
+        if cond_key == attack_type_column_name_in_signature_key or cond_key == 'Signature_ID' or cond_key == 'signature_name': 
+            continue
+
+        row_val = row.get(cond_key) # Get value from the data row
+
+        if row_val is None: # If the data row doesn't have this feature, it cannot match.
+            return False
+        
+        # Comparison logic: assumes mapped values are strings or directly comparable.
+        # Needs to be robust. If signature values are numeric, row_val should be too.
+        if str(row_val) != str(cond_val_sig):
+            return False
+    return True # All conditions matched
+
+# Worker function for parallel processing of data chunks
+def _process_evaluation_chunk(data_chunk, categories_to_evaluate, signatures_grouped_by_intended_category, attack_type_column_name_in_data_and_signature):
+    chunk_metrics = {
+        category: {'TP': 0, 'FP': 0, 'FN': 0}
+        for category in categories_to_evaluate
+    }
+    for _, row in data_chunk.iterrows():
+        actual_row_category = row[attack_type_column_name_in_data_and_signature]
+        is_actually_an_attack_row_of_any_type = (row['label'] == 1)
+
+        for category_C_under_evaluation in categories_to_evaluate:
+            system_predicts_row_as_category_C = False
+            if category_C_under_evaluation in signatures_grouped_by_intended_category:
+                for sig_cond_for_C in signatures_grouped_by_intended_category[category_C_under_evaluation]:
+                    if row_matches_signature(row, sig_cond_for_C, attack_type_column_name_in_data_and_signature):
+                        system_predicts_row_as_category_C = True
+                        break
+            
+            is_row_actually_category_C = (is_actually_an_attack_row_of_any_type and actual_row_category == category_C_under_evaluation)
+
+            if is_row_actually_category_C:
+                if system_predicts_row_as_category_C:
+                    chunk_metrics[category_C_under_evaluation]['TP'] += 1
+                else:
+                    chunk_metrics[category_C_under_evaluation]['FN'] += 1
+            else:
+                if system_predicts_row_as_category_C:
+                    chunk_metrics[category_C_under_evaluation]['FP'] += 1
+    return chunk_metrics
+
+def evaluate_signatures(signature_data_list, data_df, attack_type_column_name_in_data_and_signature):
+    """
+    Evaluates signatures against data to calculate TP, FP, FN for each attack category.
+
+    Args:
+        signature_data_list (list): List of signatures. Each signature is a dict, 
+                                    e.g., {'signature_name': {'Signature_dict': conditions, ...}}
+        data_df (pd.DataFrame): Preprocessed data with 'label' and true attack types.
+        attack_type_column_name_in_data_and_signature (str): Column name in data_df for true attack type,
+                                                              AND key in signature's Signature_dict for its intended attack type.
+    Returns:
+        dict: {category: {'TP': count, 'FP': count, 'FN': count}}
+    """
+
+    # Determine categories to evaluate based on true attacks in data and intended types in signatures
+    true_attack_categories_in_data = set(
+        data_df[data_df['label'] == 1][attack_type_column_name_in_data_and_signature].unique()
+    )
+    # Refine: remove non-attack placeholder values if any
+    true_attack_categories_in_data = {cat for cat in true_attack_categories_in_data if cat and cat not in ['Unknown', 'Benign', 'Normal', '-']}
+
+    signatures_grouped_by_intended_category = {}
+    all_intended_sig_categories = set()
+
+    for sig_data in signature_data_list:
+        sig_conditions = sig_data.get('signature_name', {}).get('Signature_dict', {})
+        if not sig_conditions: continue
+        
+        intended_category = sig_conditions.get(attack_type_column_name_in_data_and_signature)
+        if intended_category and intended_category not in ['Unknown', 'Benign', 'Normal', '-']: # Focus on actual attack types
+            all_intended_sig_categories.add(intended_category)
+            if intended_category not in signatures_grouped_by_intended_category:
+                signatures_grouped_by_intended_category[intended_category] = []
+            signatures_grouped_by_intended_category[intended_category].append(sig_conditions)
+            
+    categories_to_evaluate = true_attack_categories_in_data.union(all_intended_sig_categories)
+    
+    final_evaluation_metrics = {
+        category: {'TP': 0, 'FP': 0, 'FN': 0}
+        for category in categories_to_evaluate
     }
 
-def evaluate_signatures(signature_data, data, attack_type_column):
-    # Use multiprocessing to evaluate signatures in parallel
-    with multiprocessing.Pool() as pool:
-        detailed_results = pool.starmap(evaluate_signature_task, [(signature, data, attack_type_column) for signature in signature_data])
-    return detailed_results
+    if data_df.empty:
+        return final_evaluation_metrics
 
-def write_results_to_csv(results, output_file_path):
+    num_processes = multiprocessing.cpu_count()
+    # Ensure num_processes is not more than the number of rows if dataframe is small
+    num_processes = min(num_processes, len(data_df))
+    if num_processes == 0: num_processes = 1 # Ensure at least one process for very small data_df
+        
+    # Split dataframe into chunks for parallel processing
+    # Using np.array_split can handle cases where len(data_df) is not perfectly divisible by num_processes
+    df_chunks = np.array_split(data_df, num_processes)
+    
+    # Filter out empty chunks that might be produced by array_split if num_processes > len(data_df)
+    df_chunks = [chunk for chunk in df_chunks if not chunk.empty]
+
+    if not df_chunks: # If all chunks ended up empty (e.g. original df was empty)
+        return final_evaluation_metrics
+
+    # Update num_processes if the number of non-empty chunks is less
+    num_processes = len(df_chunks)
+    if num_processes == 0: return final_evaluation_metrics # Should be caught by earlier checks
+
+    pool_args = [(chunk, categories_to_evaluate, signatures_grouped_by_intended_category, attack_type_column_name_in_data_and_signature) for chunk in df_chunks]
+
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        results_from_chunks = pool.starmap(_process_evaluation_chunk, pool_args)
+
+    # Aggregate results from all chunks
+    for chunk_result in results_from_chunks:
+        for category, metrics in chunk_result.items():
+            if category in final_evaluation_metrics:
+                final_evaluation_metrics[category]['TP'] += metrics['TP']
+                final_evaluation_metrics[category]['FP'] += metrics['FP']
+                final_evaluation_metrics[category]['FN'] += metrics['FN']
+            # else: This category wasn't in the initial set, which shouldn't happen if categories_to_evaluate is passed correctly.
+
+    return final_evaluation_metrics
+
+
+def write_results_to_csv(evaluation_results, output_file_path):
     with open(output_file_path, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Attack Type', 'Total Precision', 'Total Recall', 'Average Precision', 'Average Recall'])
-        for attack_type, metrics in results.items():
-            total_precision = metrics['precision']
-            total_recall = metrics['recall']
-            count = metrics['count']
-            avg_precision = total_precision / count if count else 0
-            avg_recall = total_recall / count if count else 0
-            writer.writerow([attack_type, total_precision, total_recall, avg_precision, avg_recall])
+        # Headers might need adjustment if average P/R are to be different or omitted
+        writer.writerow(['Attack Type', 'Total Precision', 'Total Recall']) # Simplified header
+        for attack_type, metrics in evaluation_results.items():
+            tp = metrics['TP']
+            fp = metrics['FP']
+            fn = metrics['FN']
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            
+            writer.writerow([attack_type, precision, recall])
 
-def write_detailed_results_to_csv(results, output_file_path):
-    with open(output_file_path, mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(['Signature', 'Identified Attack'])
-        for result in results:
-            writer.writerow([
-                result['Signature'],
-                result['Identified Attack']
-            ])
-
+# write_detailed_results_to_csv is not directly compatible with the new evaluate_signatures output.
+# It would require evaluate_signatures to return per-row, per-signature match details if that level of logging is needed.
+# For now, its call in main should be commented out or adapted.
 
 def main():
     parser = argparse.ArgumentParser(description='Evaluate attack identification using signatures.')
@@ -58,107 +173,146 @@ def main():
     file_number = args.file_number
     association_method = args.association
 
-    # Use the file_path_line_association function to get the data file path
     data_csv_path, _ = file_path_line_association(file_type, file_number)
-    # Use association_method to dynamically set the signature_csv_path
     signature_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_{association_method}_{file_number}_confidence_signature_train_ea15.csv'
     output_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_attack_identification_results.csv'
-    detailed_output_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_detailed_signature_results.csv'
+    # detailed_output_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_detailed_signature_results.csv' # Commented out
 
-    # Load and preprocess data
     with open(data_csv_path, mode='r', newline='') as data_file:
         data_reader = csv.DictReader(data_file)
-        data = [row for row in data_reader]
+        data_list_of_dicts = [row for row in data_reader]
 
-    # Convert data to a DataFrame
-    data_df = pd.DataFrame(data)
+    if not data_list_of_dicts:
+        print(f"No data found in {data_csv_path}")
+        return
+        
+    data_df = pd.DataFrame(data_list_of_dicts)
 
-    # Assign labels based on file_type
+    # Assign labels and true attack type column
+    # The column name used for true attack type (e.g., 'Class', 'Attack', 'AttackType')
+    # This name must also be used inside signatures if they self-identify their target type.
+    attack_type_column_name_in_data_and_signature = '' 
+
     if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
-        data_df['label'], _ = anomal_judgment_nonlabel(file_type, data_df)
+        data_df['label'], _ = anomal_judgment_nonlabel(file_type, data_df) # Assuming this handles attack_type_column too or it needs to be set
+        # For these, `attack_type_column_name_in_data_and_signature` needs to be defined if not 'AttackType' by default
+        if file_type == 'MiraiBotnet' and 'AttackType' not in data_df.columns: # Example for Mirai
+             # If anomal_judgment_nonlabel doesn't create it, or if it's named differently
+             # data_df['AttackType'] = data_df[SOME_OTHER_MIRAI_SPECIFIC_COLUMN]
+             pass # Placeholder: Ensure MiraiBotnet data has its specific attack type column
+        attack_type_column_name_in_data_and_signature = 'AttackType' # Default, adjust if needed
+
     elif file_type == 'netML':
         data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+        data_df['AttackType'] = data_df['Label'] # Assuming 'Label' column contains specific attack types or 'BENIGN'
+        attack_type_column_name_in_data_and_signature = 'AttackType' 
+
     elif file_type == 'DARPA98':
         data_df['label'] = data_df['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
+        # 'Class' column itself is the attack type identifier
+        attack_type_column_name_in_data_and_signature = 'Class' 
+
     elif file_type in ['CICIDS2017', 'CICIDS']:
         if 'Label' in data_df.columns:
             data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
-        else:
-            data_df['label'] = 0
+            data_df['AttackType'] = data_df['Label'] # Label contains specific attacks or 'BENIGN'
+        else: # Fallback if 'Label' is missing
+            data_df['label'] = 0 
+            data_df['AttackType'] = 'Unknown'
+        attack_type_column_name_in_data_and_signature = 'AttackType'
+
     elif file_type in ['CICModbus23', 'CICModbus']:
         data_df['label'] = data_df['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
+        # 'Attack' column itself is the attack type identifier
+        attack_type_column_name_in_data_and_signature = 'Attack' 
+
     elif file_type in ['IoTID20', 'IoTID']:
         data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
+        data_df['AttackType'] = data_df['Label'] # Label contains specific attacks or 'Normal'
+        attack_type_column_name_in_data_and_signature = 'AttackType'
     else:
-        data_df['label'] = anomal_judgment_label(data_df)
+        # Fallback for other/unknown file_types
+        data_df['label'] = anomal_judgment_label(data_df) # Ensure this returns a Series
+        if 'AttackType' not in data_df.columns: # If not set by judgment func
+            print(f"Warning: 'AttackType' column not automatically set for file_type '{file_type}'. Defaulting to 'Unknown'.")
+            data_df['AttackType'] = 'Unknown'
+        attack_type_column_name_in_data_and_signature = 'AttackType'
 
-    # Determine the correct attack type column based on file type
-    if file_type in ['DARPA98', 'DARPA']:
-        attack_type_column = 'Class'
-    elif file_type in ['CICModbus23', 'CICModbus']:
-        attack_type_column = 'Attack'
-    else:
-        attack_type_column = 'AttackType'
+    # Ensure 'label' is numeric (0 or 1)
+    data_df['label'] = pd.to_numeric(data_df['label'], errors='coerce').fillna(0).astype(int)
 
-    # Use absolute path for mapping file
+    # Replace benign-like names in the true attack type column with a consistent 'Benign' identifier
+    # This helps in distinguishing from actual attack categories during evaluation.
+    benign_markers = ['BENIGN', 'Normal', '-', 'Baseline Replay: In position'] # Add others as necessary
+    for marker in benign_markers:
+        if attack_type_column_name_in_data_and_signature in data_df.columns:
+            data_df[attack_type_column_name_in_data_and_signature] = data_df[attack_type_column_name_in_data_and_signature].replace(marker, 'Benign')
+
+    # Load mapping information
     mapping_file_path = os.path.expanduser(f"~/asic/Dataset_Paral/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv")
-    print(f"Debug: Looking for mapping file at: {mapping_file_path}")
     if not os.path.exists(mapping_file_path):
-        raise FileNotFoundError(f"Mapping file not found: {mapping_file_path}")
+        raise FileNotFoundError(f"Mapping file not found at: {mapping_file_path}")
     mapping_info_df = pd.read_csv(mapping_file_path)
 
-    # Extract mapping information
-    category_mapping = {
-        'interval': {},
-        'categorical': pd.DataFrame(),
-        'binary': pd.DataFrame()
-    }
-
+    category_mapping = {'interval': {}, 'categorical': pd.DataFrame(), 'binary': pd.DataFrame()}
     for column in mapping_info_df.columns:
-        column_mappings = []
-        for value in mapping_info_df[column].dropna():
-            if isinstance(value, str) and '=' in value:
-                column_mappings.append(value)
+        column_mappings = [val for val in mapping_info_df[column].dropna() if isinstance(val, str) and '=' in val]
         if column_mappings:
             category_mapping['interval'][column] = pd.Series(column_mappings)
-
     category_mapping['interval'] = pd.DataFrame(category_mapping['interval'])
 
-    # Create data_list
-    data_list = [pd.DataFrame(), pd.DataFrame()]
+    data_for_mapping = data_df.copy()
+    simple_data_list_for_mapping = [pd.DataFrame(index=data_df.index), pd.DataFrame(index=data_df.index)]
+    group_mapped_interval_cols_df, _ = map_intervals_to_groups(data_for_mapping, category_mapping, simple_data_list_for_mapping, regul='N')
+    
+    final_evaluation_df = data_df.copy()
+    for col in group_mapped_interval_cols_df.columns:
+        final_evaluation_df[col] = group_mapped_interval_cols_df[col]
 
-    # Perform mapping only for columns present in mapping_info_df
-    columns_to_map = [col for col in data_df.columns if col in mapping_info_df.columns]
-    data_to_map = data_df[columns_to_map]
+    # Convert mapped columns to numeric for reliable comparison if signature values are numeric
+    for col in category_mapping['interval'].columns:
+        if col in final_evaluation_df.columns:
+            final_evaluation_df[col] = pd.to_numeric(final_evaluation_df[col], errors='coerce')
 
-    # Perform mapping
-    group_mapped_df, _ = map_intervals_to_groups(data_to_map, category_mapping, data_list, regul='N')
+    print(f"Data prepared for evaluation. Sample:
+{final_evaluation_df.head()}")
+    print(f"Using '{attack_type_column_name_in_data_and_signature}' as the key for attack types in data and signatures.")
 
-    # Add unmapped columns back to the DataFrame
-    unmapped_columns = [col for col in data_df.columns if col not in columns_to_map]
-    group_mapped_df = pd.concat([group_mapped_df, data_df[unmapped_columns]], axis=1)
-
-    # Add the label from the source data to group_mapped_df
-    group_mapped_df['label'] = data_df['label']
-
-    print("Mapping completed. Group mapped data:", group_mapped_df.head())
-
-    # Convert only the mapped columns to numeric before removing rare columns
-    mapped_columns = category_mapping['interval'].columns
-    group_mapped_df[mapped_columns] = group_mapped_df[mapped_columns].apply(pd.to_numeric, errors='coerce')
-
-    # Remove rare columns (if needed, otherwise this can be removed)
-    # min_support_ratio_for_rare = 0.01 if file_type in ['NSL-KDD', 'NSL_KDD'] else 0.1
-    # min_distinct = 1 if file_type in ['NSL-KDD', 'NSL_KDD'] else 2
-    # group_mapped_df = remove_rare_columns(group_mapped_df, min_support_ratio_for_rare, file_type, min_distinct_frequent_values=min_distinct)
-
+    # Load signatures
+    all_signatures_from_file = []
+    if not os.path.exists(signature_csv_path):
+        print(f"Signature file not found: {signature_csv_path}")
+        return
+        
     with open(signature_csv_path, mode='r', newline='') as sig_file:
         sig_reader = csv.DictReader(sig_file)
-        for sig_row in sig_reader:
-            signature_data = ast.literal_eval(sig_row['Verified_Signatures'])
-            results = evaluate_signatures(signature_data, group_mapped_df, attack_type_column)
-            write_results_to_csv(results, output_csv_path)
-            write_detailed_results_to_csv(results, detailed_output_csv_path)
+        if 'Verified_Signatures' not in sig_reader.fieldnames:
+            raise ValueError(f"'Verified_Signatures' column not found in {signature_csv_path}")
+        
+        for sig_row_idx, sig_row in enumerate(sig_reader):
+            verified_sigs_str = sig_row.get('Verified_Signatures')
+            if verified_sigs_str:
+                try:
+                    current_signature_batch = ast.literal_eval(verified_sigs_str)
+                    if isinstance(current_signature_batch, list):
+                        all_signatures_from_file.extend(current_signature_batch)
+                    else:
+                        print(f"Warning: Row {sig_row_idx+1} 'Verified_Signatures' in {signature_csv_path} is not a list (type: {type(current_signature_batch)}). Skipping.")
+                except (ValueError, SyntaxError) as e:
+                    print(f"Error parsing 'Verified_Signatures' in row {sig_row_idx+1} of {signature_csv_path}: {e}. Content preview: '{verified_sigs_str[:100]}...'")
+            # else: Row might be empty, which is fine.
+
+    if not all_signatures_from_file:
+        print(f"No valid signatures loaded from {signature_csv_path}. Cannot perform evaluation.")
+        return
+
+    print(f"Loaded {len(all_signatures_from_file)} signatures for evaluation.")
+
+    aggregated_metrics = evaluate_signatures(all_signatures_from_file, final_evaluation_df, attack_type_column_name_in_data_and_signature)
+    
+    write_results_to_csv(aggregated_metrics, output_csv_path)
+    print(f"Aggregated evaluation results saved to {output_csv_path}")
+    # print(f"Detailed results CSV generation (currently commented out) would be at {detailed_output_csv_path}")
 
 if __name__ == '__main__':
     main()
