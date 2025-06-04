@@ -2,6 +2,7 @@ import argparse
 import csv
 import ast
 import os
+import pandas as pd
 from utils.class_row import anomal_class_data, nomal_class_data, without_label
 from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
@@ -101,6 +102,9 @@ def main():
         data_reader = csv.DictReader(data_file)
         data = [row for row in data_reader]
 
+    # Convert data to a DataFrame
+    data_df = pd.DataFrame(data)
+
     # Determine the correct attack type column based on file type
     if file_type in ['DARPA98', 'DARPA']:
         attack_type_column = 'Class'
@@ -110,7 +114,7 @@ def main():
         attack_type_column = 'AttackType'
 
     # Group mapping
-    group_mapped_df = anomal_class_data(data)
+    group_mapped_df = anomal_class_data(data_df)
     group_mapped_df = without_label(group_mapped_df)
 
     # Remove rare columns
