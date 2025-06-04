@@ -282,7 +282,7 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
                 lk_results = pool.starmap(calculate_global_support_sam, merge_phase_Lk_tasks)
             
             for support, item_fset_cand in lk_results:
-                    if support >= min_support:
+                if support >= min_support:
                     next_level_itemsets_from_merge.add(item_fset_cand)
                     if len(next_level_itemsets_from_merge) % 1000 == 0 and len(next_level_itemsets_from_merge) > 0:
                         print(f"        [Debug SaM MergeLoop-{level_count}] Found candidate for next level (count {len(next_level_itemsets_from_merge)}): {item_fset_cand}, Support: {support:.4f}")
