@@ -274,8 +274,7 @@ def main():
         if col in final_evaluation_df.columns:
             final_evaluation_df[col] = pd.to_numeric(final_evaluation_df[col], errors='coerce')
 
-    print(f"Data prepared for evaluation. Sample:
-{final_evaluation_df.head()}")
+    print(f"Data prepared for evaluation. Sample:\n{final_evaluation_df.head()}")
     print(f"Using '{attack_type_column_name_in_data_and_signature}' as the key for attack types in data and signatures.")
 
     # Load signatures
