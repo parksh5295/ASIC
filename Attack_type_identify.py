@@ -60,9 +60,22 @@ def write_results_to_csv(results, output_file_path):
 def write_detailed_results_to_csv(results, output_file_path):
     with open(output_file_path, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Signature', 'Identified Attack', 'True Positives', 'False Positives', 'False Negatives'])
+        writer.writerow(['Signature', 'Identified Attack', 'True Positives', 'False Positives', 'False Negatives', 'Precision', 'Recall'])
         for result in results:
-            writer.writerow([result['Signature'], result['Identified Attack'], result['True Positives'], result['False Positives'], result['False Negatives']])
+            tp = result['True Positives']
+            fp = result['False Positives']
+            fn = result['False Negatives']
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            writer.writerow([
+                result['Signature'],
+                result['Identified Attack'],
+                tp,
+                fp,
+                fn,
+                precision,
+                recall
+            ])
 
 
 def main():
