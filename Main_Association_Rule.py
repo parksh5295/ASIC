@@ -362,7 +362,7 @@ def main():
         signature_ea,
         precision_underlimit,
         algo_internal_procs, # Pass the calculated number of processes for the algorithm
-        current_file_type=file_type
+        file_type
     )
 
     # Create a list of arguments for starmap: (min_confidence_value, *static_args)
