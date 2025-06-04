@@ -3,7 +3,7 @@ import csv
 import ast
 import os
 import pandas as pd
-from utils.class_row import anomal_class_data, nomal_class_data, without_label
+from utils.class_row import anomal_class_data, nomal_class_data, without_label, anomal_judgment_nonlabel, anomal_judgment_label
 from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 
@@ -104,6 +104,25 @@ def main():
 
     # Convert data to a DataFrame
     data_df = pd.DataFrame(data)
+
+    # Assign labels based on file_type
+    if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
+        data_df['label'], _ = anomal_judgment_nonlabel(file_type, data_df)
+    elif file_type == 'netML':
+        data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+    elif file_type == 'DARPA98':
+        data_df['label'] = data_df['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
+    elif file_type in ['CICIDS2017', 'CICIDS']:
+        if 'Label' in data_df.columns:
+            data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+        else:
+            data_df['label'] = 0
+    elif file_type in ['CICModbus23', 'CICModbus']:
+        data_df['label'] = data_df['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
+    elif file_type in ['IoTID20', 'IoTID']:
+        data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
+    else:
+        data_df['label'] = anomal_judgment_label(data_df)
 
     # Determine the correct attack type column based on file type
     if file_type in ['DARPA98', 'DARPA']:
