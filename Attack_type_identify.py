@@ -13,24 +13,33 @@ from Heterogeneous_Method.separate_group_mapping import map_intervals_to_groups
 
 
 # Helper function to check if a row matches a signature's conditions
-def row_matches_signature(row, signature_conditions, attack_type_column_name_in_signature_key):
+def row_matches_signature(row, signature_conditions, attack_type_column_name_in_signature_key, signature_id_for_debug='UnknownSig'):
     # signature_conditions is the dict like {'Protocol': 'TCP', 'SrcPort': '80', ...}
+    # print(f"[DEBUG row_matches_signature] SigID: {signature_id_for_debug} - Checking row: {row.name if isinstance(row, pd.Series) else 'N/A'}") # Can be too verbose
     for cond_key, cond_val_sig in signature_conditions.items():
-        # Skip metadata-like fields within the signature_conditions if they are not actual rule parts.
-        # attack_type_column_name_in_signature_key is the key used IN THE SIGNATURE to denote its intended attack type.
         if cond_key == attack_type_column_name_in_signature_key or cond_key == 'Signature_ID' or cond_key == 'signature_name': 
             continue
 
-        row_val = row.get(cond_key) # Get value from the data row
+        row_val = row.get(cond_key) 
+        
+        # Prepare for comparison
+        str_row_val = str(row_val) if row_val is not None else None
+        str_cond_val_sig = str(cond_val_sig) if cond_val_sig is not None else None
 
+        # Detailed print for mismatch, or for all comparisons if highly verbose debugging is needed
+        # if str_row_val != str_cond_val_sig:
+        #     print(f"  [DEBUG row_matches_signature] SigID: {signature_id_for_debug}, RowIdx: {row.name if isinstance(row, pd.Series) else 'N/A'} - Mismatch on Key '{cond_key}': RowVal='{str_row_val}' (Type: {type(row_val)}), SigVal='{str_cond_val_sig}' (Type: {type(cond_val_sig)})")
+        
         if row_val is None: # If the data row doesn't have this feature, it cannot match.
+            # print(f"  [DEBUG row_matches_signature] SigID: {signature_id_for_debug} - Key '{cond_key}' not in row or row_val is None. No match.")
             return False
         
-        # Comparison logic: assumes mapped values are strings or directly comparable.
-        # Needs to be robust. If signature values are numeric, row_val should be too.
-        if str(row_val) != str(cond_val_sig):
+        if str_row_val != str_cond_val_sig:
             return False
-    return True # All conditions matched
+            
+    # If loop completes, all conditions matched
+    # print(f"  [DEBUG row_matches_signature] SigID: {signature_id_for_debug} - MATCHED RowIdx: {row.name if isinstance(row, pd.Series) else 'N/A'}")
+    return True
 
 # Worker function for parallel processing of data chunks
 def _process_evaluation_chunk(data_chunk, categories_to_evaluate, signatures_grouped_by_intended_category, attack_type_column_name_in_data_and_signature):
@@ -38,16 +47,25 @@ def _process_evaluation_chunk(data_chunk, categories_to_evaluate, signatures_gro
         category: {'TP': 0, 'FP': 0, 'FN': 0}
         for category in categories_to_evaluate
     }
-    for _, row in data_chunk.iterrows():
+    # print(f"[DEBUG _process_evaluation_chunk] Processing chunk of size {len(data_chunk)} with {len(signatures_grouped_by_intended_category)} sig groups & {len(categories_to_evaluate)} eval categories")
+
+    for row_idx, row in data_chunk.iterrows():
         actual_row_category = row[attack_type_column_name_in_data_and_signature]
         is_actually_an_attack_row_of_any_type = (row['label'] == 1)
+
+        # Debug print for a specific row if needed
+        # if row_idx < 5: # Example: Print details for first 5 rows of each chunk
+        #     print(f"  [DEBUG _process_evaluation_chunk] Row {row_idx}: Label={row['label']}, TrueCategory='{actual_row_category}'")
 
         for category_C_under_evaluation in categories_to_evaluate:
             system_predicts_row_as_category_C = False
             if category_C_under_evaluation in signatures_grouped_by_intended_category:
-                for sig_cond_for_C in signatures_grouped_by_intended_category[category_C_under_evaluation]:
-                    if row_matches_signature(row, sig_cond_for_C, attack_type_column_name_in_data_and_signature):
+                for sig_idx, sig_cond_for_C in enumerate(signatures_grouped_by_intended_category[category_C_under_evaluation]):
+                    # Try to get a unique ID for the signature for better debug messages
+                    sig_id_debug = sig_cond_for_C.get('Signature_ID', f'UnnamedSig_CatC_{sig_idx}') 
+                    if row_matches_signature(row, sig_cond_for_C, attack_type_column_name_in_data_and_signature, signature_id_for_debug=sig_id_debug):
                         system_predicts_row_as_category_C = True
+                        # print(f"    [DEBUG _process_evaluation_chunk] Row {row_idx} MATCHED by SigID: {sig_id_debug} for Category_C: {category_C_under_evaluation}")
                         break
             
             is_row_actually_category_C = (is_actually_an_attack_row_of_any_type and actual_row_category == category_C_under_evaluation)
@@ -57,9 +75,17 @@ def _process_evaluation_chunk(data_chunk, categories_to_evaluate, signatures_gro
                     chunk_metrics[category_C_under_evaluation]['TP'] += 1
                 else:
                     chunk_metrics[category_C_under_evaluation]['FN'] += 1
+                    # if is_actually_an_attack_row_of_any_type: # Log all FNs for actual attacks
+                    #     print(f"    [DEBUG FN] Row {row_idx} (True: {actual_row_category}, Label: {row['label']}) was FN for Category_C: {category_C_under_evaluation}")
             else:
                 if system_predicts_row_as_category_C:
                     chunk_metrics[category_C_under_evaluation]['FP'] += 1
+                    # print(f"    [DEBUG FP] Row {row_idx} (True: {actual_row_category}, Label: {row['label']}) was FP for Category_C: {category_C_under_evaluation} (System predicted it as C)")
+    
+    # After processing all rows in the chunk, print a summary if any TPs were found in this chunk
+    # for cat, met in chunk_metrics.items():
+    #     if met['TP'] > 0 or met['FP'] > 0 or met['FN'] > 0:
+    #          print(f"  [DEBUG _process_evaluation_chunk] Chunk Summary for {cat}: TP={met['TP']}, FP={met['FP']}, FN={met['FN']}")
     return chunk_metrics
 
 def evaluate_signatures(signature_data_list, data_df, attack_type_column_name_in_data_and_signature):
@@ -140,6 +166,7 @@ def evaluate_signatures(signature_data_list, data_df, attack_type_column_name_in
                 final_evaluation_metrics[category]['FN'] += metrics['FN']
             # else: This category wasn't in the initial set, which shouldn't happen if categories_to_evaluate is passed correctly.
 
+    # print(f"[DEBUG evaluate_signatures] Results from chunks before aggregation: {results_from_chunks}")
     return final_evaluation_metrics
 
 
@@ -147,7 +174,11 @@ def write_results_to_csv(evaluation_results, output_file_path):
     with open(output_file_path, mode='w', newline='') as file:
         writer = csv.writer(file)
         # Headers might need adjustment if average P/R are to be different or omitted
-        writer.writerow(['Attack Type', 'Total Precision', 'Total Recall']) # Simplified header
+        writer.writerow(['Attack Type', 'Total Precision', 'Total Recall'])
+        
+        all_precisions = []
+        all_recalls = []
+
         for attack_type, metrics in evaluation_results.items():
             tp = metrics['TP']
             fp = metrics['FP']
@@ -156,7 +187,26 @@ def write_results_to_csv(evaluation_results, output_file_path):
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0
             
+            all_precisions.append(precision)
+            all_recalls.append(recall)
+            
             writer.writerow([attack_type, precision, recall])
+
+        # Calculate and write Macro Average Precision and Recall
+        if all_precisions: # Avoid division by zero if no categories
+            macro_avg_precision = sum(all_precisions) / len(all_precisions)
+        else:
+            macro_avg_precision = 0
+        
+        if all_recalls:
+            macro_avg_recall = sum(all_recalls) / len(all_recalls)
+        else:
+            macro_avg_recall = 0
+            
+        writer.writerow([]) # Add an empty row for separation
+        writer.writerow(['Macro Average', macro_avg_precision, macro_avg_recall])
+        print(f"Macro Average Precision: {macro_avg_precision:.4f}")
+        print(f"Macro Average Recall: {macro_avg_recall:.4f}")
 
 # write_detailed_results_to_csv is not directly compatible with the new evaluate_signatures output.
 # It would require evaluate_signatures to return per-row, per-signature match details if that level of logging is needed.
@@ -310,6 +360,12 @@ def main():
         return
 
     print(f"Loaded {len(all_signatures_from_file)} signatures for evaluation.")
+
+    # print(f"[DEBUG main] Sample of final_evaluation_df before evaluate_signatures (first 3 rows):\n{final_evaluation_df.head(3)}")
+    # print(f"[DEBUG main] Info of final_evaluation_df:\n{final_evaluation_df.info()}")
+    # print(f"[DEBUG main] Attack types in data to be evaluated: {final_evaluation_df[attack_type_column_name_in_data_and_signature].unique()}")
+    # print(f"[DEBUG main] Loaded {len(all_signatures_from_file)} signatures. Sample signature 0 conditions: {all_signatures_from_file[0].get('signature_name',{}).get('Signature_dict',{}) if all_signatures_from_file else 'No sigs'}")
+    # print(f"[DEBUG main] Signatures grouped by intended category keys: {signatures_grouped_by_intended_category.keys() if 'signatures_grouped_by_intended_category' in locals() else 'Not computed yet'}") #This var is local to evaluate_signatures
 
     aggregated_metrics = evaluate_signatures(all_signatures_from_file, final_evaluation_df, attack_type_column_name_in_data_and_signature)
     
