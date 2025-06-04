@@ -179,7 +179,7 @@ def main():
     signature_csv_path = os.path.join(base_signature_dir, f'{file_type}_{association_method}_{file_number}_confidence_signature_train_ea15.csv')
     print(f"Debug: Looking for signature file at: {signature_csv_path}") # Added for debugging
 
-    output_csv_path = os.path.join(base_signature_dir, f'{file_type}_attack_identification_results.csv') # Also make output path absolute
+    output_csv_path = os.path.join(base_signature_dir, f'{file_type}_{association_method}_attack_identification_results.csv') # Also make output path absolute
     # detailed_output_csv_path = os.path.join(base_signature_dir, f'{file_type}_detailed_signature_results.csv') # Commented out
 
     with open(data_csv_path, mode='r', newline='') as data_file:
