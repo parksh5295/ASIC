@@ -6,6 +6,7 @@ import pandas as pd
 from utils.class_row import anomal_class_data, nomal_class_data, without_label, anomal_judgment_nonlabel, anomal_judgment_label
 from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
+from definition.Anomal_Judgment import anomal_judgment_label
 
 
 def evaluate_signatures(signature_data, data, attack_type_column):
