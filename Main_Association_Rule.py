@@ -193,18 +193,36 @@ def main():
     print(f"Saved mapped_info_df to: {mapped_info_save_path}")
 
     # group_mapped_df['label'] = data['label']
+    # DIAGNOSTIC PRINT: Check lengths before label assignment
+    print(f"DIAGNOSTIC: Length of data: {len(data)}, Length of group_mapped_df: {len(group_mapped_df)}")
+
+    # Original label assignment logic with added diagnostics for NSL-KDD
     if len(group_mapped_df) == len(data) and file_type == 'netML':
-        logger.info(f"[{file_type}] Assigning 'label' to group_mapped_df using .values for robust index handling.")
-        # Use .values to assign values regardless of data.index state
+        # logger.info(f"[{file_type}] Assigning 'label' to group_mapped_df using .values for robust index handling.")
         group_mapped_df['label'] = data['label'].values
     elif file_type != 'netML':
         group_mapped_df['label'] = data['label']
+    '''
     else:
         logger.critical(f"[{file_type}] CRITICAL: Length mismatch between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
+    '''
+        if file_type in ['NSL-KDD', 'NSL_KDD']:
+            print(f"DIAGNOSTIC NSL-KDD: After `group_mapped_df['label'] = data['label']`")
+            if 'label' in group_mapped_df.columns:
+                print(f"  NaN count in group_mapped_df['label']: {group_mapped_df['label'].isna().sum()}")
+                print(f"  Value counts (raw strings):\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
+            else:
+                print("  DIAGNOSTIC NSL-KDD ERROR: 'label' column not found after assignment!")
+    else: # netML and lengths differ
+        logger.critical(f"[{file_type}] CRITICAL: Length mismatch for netML between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
+        # To prevent KeyError, ensure 'label' column exists, even if problematic
+        if 'label' not in group_mapped_df.columns:
+            group_mapped_df['label'] = np.nan
     
 
     # ===== Convert NSL-KDD string labels to numeric =====
     if file_type in ['NSL-KDD', 'NSL_KDD']:
+        '''
         print("Converting NSL-KDD labels ('normal'->0, 'attack'->1)...")
         # Make sure the mapping matches the actual string values
         # It seems the label might be 'attack' based on user output, not 'anomal'
@@ -213,6 +231,17 @@ def main():
         # Verify conversion
         print("Label distribution after NSL-KDD conversion:")
         print(group_mapped_df['label'].value_counts())
+        '''
+        print("DIAGNOSTIC NSL-KDD: Attempting string to numeric label conversion...")
+        if 'label' not in group_mapped_df.columns:
+            print("  DIAGNOSTIC NSL-KDD ERROR: 'label' column MISSING before .map() conversion!")
+        elif group_mapped_df['label'].notna().sum() == 0:
+            print(f"  DIAGNOSTIC NSL-KDD: 'label' column is ALL NaNs before .map(). NaN count: {group_mapped_df['label'].isna().sum()}")
+        else:
+            print(f"  DIAGNOSTIC NSL-KDD: Before .map() - NaN count: {group_mapped_df['label'].isna().sum()}, Value counts:\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
+            label_map = {'normal': 0, 'attack': 1}
+            group_mapped_df['label'] = group_mapped_df['label'].map(label_map)
+            print(f"  DIAGNOSTIC NSL-KDD: After .map() - NaN count: {group_mapped_df['label'].isna().sum()}, Value counts:\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
     # =====================================================
 
     # ===== Check group_mapped_df before splitting =====
