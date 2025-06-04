@@ -220,7 +220,7 @@ def main():
         # logger.info(f"[{file_type}] Assigning 'label' to group_mapped_df using .values for robust index handling.")
         group_mapped_df['label'] = data['label'].values
     elif file_type != 'netML':
-    group_mapped_df['label'] = data['label']
+        group_mapped_df['label'] = data['label']
     '''
     else:
         logger.critical(f"[{file_type}] CRITICAL: Length mismatch between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
