@@ -262,7 +262,7 @@ def main():
 
     if file_type in ['CICModbus23', 'CICModbus']:
         min_support = 0.1
-    elif file_type in ['NSL-KDD', 'NSL_KDD']:
+    elif file_type in ['NSL-KDD', 'NSL_KDD', 'netML']:
         min_support = 0.1
     elif file_type in ['DARPA98', 'DARPA']:
         min_support = 0.01
@@ -270,10 +270,10 @@ def main():
         min_support = 0.2
 
     # Use a lower min_support value for NSL-KDD
-    if file_type in ['NSL-KDD', 'NSL_KDD']:
+    if file_type in ['NSL-KDD', 'NSL_KDD', 'netML']:
         # Restore to previously successful settings
-        min_support_ratio_for_rare = 0.01
-        min_distinct = 1
+        min_support_ratio_for_rare = 0.1
+        min_distinct = 2
         print(f"NSL-KDD settings for remove_rare_columns: min_support_ratio={min_support_ratio_for_rare}, min_distinct={min_distinct}") # 값 확인용
     else:
         min_support_ratio_for_rare = 0.1   # Other dataset defaults
