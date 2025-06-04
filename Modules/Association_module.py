@@ -12,9 +12,9 @@ from Association_Rule.SaM import sam
 import time
 
 
-def association_module(df, association_rule_choose, min_support, min_confidence, association_metric, num_processes=None):
+def association_module(df, association_rule_choose, min_support, min_confidence, association_metric, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     association_list = []
-    print(f"  [Debug] >>> Entering association_module for algorithm: {association_rule_choose}, num_processes={num_processes}") # Entry log
+    print(f"  [Debug] >>> Entering association_module for algorithm: {association_rule_choose}, num_processes={num_processes}, file_type_for_limit='{file_type_for_limit}', max_level_limit={max_level_limit}") # Entry log with new params
     print(f"  [Debug]     Input data shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}") # Input information log
     start_time = time.time() # Start measuring time
 
@@ -34,13 +34,13 @@ def association_module(df, association_rule_choose, min_support, min_confidence,
         association_list = eclat(df, min_support, min_confidence, num_processes=num_processes)
     elif association_rule_choose in ['rarm', 'RARM']:
         print(f"  [Debug]     Calling rarm function...")
-        association_list = rarm(df, min_support, min_confidence, num_processes=num_processes)
+        association_list = rarm(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['h_mine', 'H_mine']:
         print(f"  [Debug]     Calling h_mine function...")
         association_list = h_mine(df, min_support, min_confidence, num_processes=num_processes)
     elif association_rule_choose in ['opus', 'OPUS']:
         print(f"  [Debug]     Calling opus function...")
-        association_list = opus(df, min_support, min_confidence, num_processes=num_processes)
+        association_list = opus(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['sam', 'SaM']:
         print(f"  [Debug]     Calling sam function...")
         association_list = sam(df, min_support, min_confidence, num_processes=num_processes)

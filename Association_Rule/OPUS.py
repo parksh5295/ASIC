@@ -125,10 +125,10 @@ class OPUSMiner:
         return pruned_set
 
 
-def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
+def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
-    print(f"    [Debug OPUS Init] Algorithm: OPUS, Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
+    print(f"    [Debug OPUS Init] Algorithm: OPUS, Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}, file_type_for_limit='{file_type_for_limit}', max_level_limit={max_level_limit}")
     start_time_total = pd.Timestamp.now()
 
     # Initialize OPUS miner
@@ -162,6 +162,12 @@ def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
     
     level_count = 1
     while current_level_itemsets:
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD'] and \
+            max_level_limit is not None and \
+            level_count > max_level_limit:
+            print(f"    [Debug OPUS Loop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking OPUS loop.")
+            break
+
         if not current_level_itemsets:
             print(f"    [Debug OPUS Loop-{level_count}] current_level_itemsets is empty. Breaking.")
             break
@@ -199,21 +205,22 @@ def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
             if itemset_idx > 0 and itemset_idx % 500 == 0: # Log every 500 itemsets
                 print(f"      [Debug OPUS Loop-{level_count}] Processing itemset {itemset_idx}/{len(current_level_itemsets)} for rules: {itemset}")
 
+            '''
             # Efficient subset processing for rule generation
             if len(itemset) > 1:
-                for i in range(1, len(itemset)):
+            for i in range(1, len(itemset)):
                     for antecedent_tuple in combinations(itemset, i):
                         antecedent = frozenset(antecedent_tuple)
                         # consequent = itemset - antecedent # Not directly used here
-                        
-                        ant_support = miner.get_support(antecedent)
-                        if ant_support > 0:
+                    
+                    ant_support = miner.get_support(antecedent)
+                    if ant_support > 0:
                             itemset_support = miner.get_support(itemset) # Get support of full itemset for confidence
                             confidence = itemset_support / ant_support
-                            
-                            if confidence >= min_confidence:
-                                # Convert rule to sorted tuple
-                                rule_dict = {}
+                        
+                        if confidence >= min_confidence:
+                            # Convert rule to sorted tuple
+                            rule_dict = {}
                                 for rule_item_str in itemset: # OPUS typically considers the frequent itemset itself as a pattern/rule context
                                     key, value = rule_item_str.split('=')
                                     try:
@@ -221,12 +228,13 @@ def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None):
                                         rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
                                     except ValueError:
                                         rule_dict[key] = value # Keep as string
-                                
-                                rule_tuple = tuple(sorted(rule_dict.items()))
+                            
+                            rule_tuple = tuple(sorted(rule_dict.items()))
                                 if rule_tuple not in rule_set:
-                                    rule_set.add(rule_tuple)
+                            rule_set.add(rule_tuple)
                                     # if len(rule_set) % 500 == 0:
                                     #     print(f"        [Debug OPUS Loop-{level_count}] Added rule/itemset (total {len(rule_set)}): {rule_tuple}, Conf (of a derived rule): {confidence:.4f}")
+            '''
             
             # Generate next level candidates (Apriori-gen style before OPUS prune)
             # Based on the provided code, it seems to use a Apriori-like candidate generation.

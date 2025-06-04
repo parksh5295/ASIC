@@ -233,7 +233,7 @@ def Grid_search_Kmeans(X, n_clusters, parameter_dict=None, num_processes_for_alg
         best_score = -1.0 # Reflect that this is not from a successful grid search point
 
     best_param_full = parameter_dict.copy()
-    best_param_full.update(best_params)
+        best_param_full.update(best_params)
     best_param_full['silhouette_score_from_n_init_tuning'] = best_score 
     return best_param_full
 
@@ -246,7 +246,7 @@ def evaluate_clustering(X, labels):
     sil_score = -1.0
     db_score_val = float('inf')
     try:
-        sil_score = silhouette_score(X, labels)
+    sil_score = silhouette_score(X, labels)
     except ValueError:
         # print(f"[WARN evaluate_clustering] Silhouette score calculation failed for labels: {np.unique(labels, return_counts=True)}")
         pass # sil_score remains -1.0
@@ -482,10 +482,10 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None, num
         if not param_grid: 
              print(f"[Warning Grid_search_all] param_grid is empty for {clustering_algorithm} (and it's not NeuralGas or KMeans). No combinations to test.")
              param_combinations = [] 
-        else:
-            param_keys = list(param_grid.keys())
-            param_values = list(param_grid.values())
-            param_combinations = list(product(*param_values))
+    else:
+        param_keys = list(param_grid.keys())
+        param_values = list(param_grid.values())
+        param_combinations = list(product(*param_values))
 
     if not param_combinations and clustering_algorithm != 'Kmeans':
         print(f"No parameter combinations to evaluate for {clustering_algorithm} after processing param_grid. Returning defaults.")
@@ -546,7 +546,7 @@ def Grid_search_all(X, clustering_algorithm, parameter_dict=None, data=None, num
             cpu_cores_all = os.cpu_count()
             if cpu_cores_all:
                 pool_processes_all = max(1, cpu_cores_all // 2)
-            else:
+        else:
                 pool_processes_all = max(1, multiprocessing.cpu_count() // 2 if multiprocessing.cpu_count() else 1)
 
         pool_processes_all = min(pool_processes_all, len(tasks_all)) 

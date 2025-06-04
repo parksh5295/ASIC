@@ -95,13 +95,14 @@ class RARMiner:
         return self.get_support(full_items) / base_support
 
 
-def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None): # Added num_processes
+def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     # Initialize RARM miner
     miner = RARMiner()
     
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
-    print(f"    [Debug RARM Init] Initializing RARM. df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
+    # Updated debug log to include new parameters
+    print(f"    [Debug RARM Init] Initializing RARM. df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}, file_type_for_limit='{file_type_for_limit}', max_level_limit={max_level_limit}")
 
     # Convert data and build initial structure (streaming approach)
     for tid, row in enumerate(df.itertuples(index=False, name=None)):
@@ -132,6 +133,13 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None): # Added n
     max_itemset_size = len(df.columns) if not df.empty else len(frequent_items)
 
     while current_level and len(next(iter(current_level))) < max_itemset_size:
+        # Add level limit check here
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD'] and \
+            max_level_limit is not None and \
+            level_count > max_level_limit:
+            print(f"    [Debug RARM Loop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking RARM loop.")
+            break
+
         current_itemset_size = len(next(iter(current_level)))
         print(f"    [Debug RARM Loop-{level_count}] Processing itemsets of size: {current_itemset_size}. Num itemsets in current_level: {len(current_level)}")
         

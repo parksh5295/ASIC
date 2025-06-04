@@ -29,15 +29,34 @@ from datetime import datetime
 # in the if __name__ == '__main__': block or in the main() function.
 logger = logging.getLogger(__name__)
 
+LEVEL_LIMITS_BY_FILE_TYPE = {
+    'MiraiBotnet': 7,
+    'NSL-KDD': 7,
+    'NSL_KDD': 7,
+    'DARPA98': None,
+    'DARPA': None,
+    'CICIDS2017': 7,
+    'CICIDS': 7,
+    'CICModbus23': None,
+    'CICModbus': None,
+    'IoTID20': None,
+    'IoTID': None,
+    'netML': 7,
+    'default': None
+}
+
 # Helper function for parallel processing
-def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes):
+def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes, current_file_type):
     """Processes a single iteration of the confidence loop."""
     iteration_start_time = time.time()
-    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file={Association_mathod}, algo_procs={algo_num_processes}")
+    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file_type='{current_file_type}', algo_procs={algo_num_processes}")
 
-    print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod}")
-    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
-    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes)
+    print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod} on file_type: {current_file_type}")
+    
+    max_level = LEVEL_LIMITS_BY_FILE_TYPE.get(current_file_type, LEVEL_LIMITS_BY_FILE_TYPE['default'])
+    
+    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes, file_type_for_limit=current_file_type, max_level_limit=max_level)
+    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes, file_type_for_limit=current_file_type, max_level_limit=max_level)
     signatures = dict_list_difference(association_list_anomal, association_list_nomal)
     print(f"  [DEBUG] Generated {len(signatures)} raw signatures before signature_evaluate.")
 
@@ -201,7 +220,7 @@ def main():
         # logger.info(f"[{file_type}] Assigning 'label' to group_mapped_df using .values for robust index handling.")
         group_mapped_df['label'] = data['label'].values
     elif file_type != 'netML':
-        group_mapped_df['label'] = data['label']
+    group_mapped_df['label'] = data['label']
     '''
     else:
         logger.critical(f"[{file_type}] CRITICAL: Length mismatch between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
@@ -220,15 +239,6 @@ def main():
             group_mapped_df['label'] = np.nan
     '''
     
-
-    # ===== Convert NSL-KDD string labels to numeric =====
-    if file_type in ['NSL-KDD', 'NSL_KDD']:
-        print(f"\n[DIAG] NSL-KDD - Checking if string to numeric label conversion (.map()) is needed.")
-        if 'label' not in group_mapped_df.columns:
-                print("  [DIAG] NSL-KDD - ERROR! 'label' column MISSING in group_mapped_df.")
-        print(f"  [DIAG] NSL-KDD - Current label values before any potential .map():\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
-        print("  [DIAG] NSL-KDD - SKIPPING .map({'normal': 0, 'attack': 1}) because labels for NSL-KDD are already numeric (0/1) as per previous logs.")
-        
 
     # ===== Check group_mapped_df before splitting =====
     print(f"Shape of group_mapped_df: {group_mapped_df.shape}")
@@ -263,7 +273,7 @@ def main():
     if file_type in ['CICModbus23', 'CICModbus']:
         min_support = 0.1
     elif file_type in ['NSL-KDD', 'NSL_KDD', 'netML', 'MiraiBotnet']:
-        min_support = 0.1
+    min_support = 0.1
     elif file_type in ['DARPA98', 'DARPA']:
         min_support = 0.01
     else:
@@ -351,7 +361,8 @@ def main():
         group_mapped_df,
         signature_ea,
         precision_underlimit,
-        algo_internal_procs # Pass the calculated number of processes for the algorithm
+        algo_internal_procs, # Pass the calculated number of processes for the algorithm
+        current_file_type=file_type
     )
 
     # Create a list of arguments for starmap: (min_confidence_value, *static_args)
