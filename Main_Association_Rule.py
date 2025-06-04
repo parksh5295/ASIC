@@ -206,13 +206,14 @@ def main():
     else:
         logger.critical(f"[{file_type}] CRITICAL: Length mismatch between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
     '''
-        if file_type in ['NSL-KDD', 'NSL_KDD']:
-            print(f"DIAGNOSTIC NSL-KDD: After `group_mapped_df['label'] = data['label']`")
-            if 'label' in group_mapped_df.columns:
-                print(f"  NaN count in group_mapped_df['label']: {group_mapped_df['label'].isna().sum()}")
-                print(f"  Value counts (raw strings):\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
-            else:
-                print("  DIAGNOSTIC NSL-KDD ERROR: 'label' column not found after assignment!")
+
+    if file_type in ['NSL-KDD', 'NSL_KDD']:
+        print(f"DIAGNOSTIC NSL-KDD: After group_mapped_df['label'] = data['label']")
+        if 'label' in group_mapped_df.columns:
+            print(f"  NaN count in group_mapped_df['label']: {group_mapped_df['label'].isna().sum()}")
+            print(f"  Value counts (raw strings):\n{group_mapped_df['label'].value_counts(dropna=False).to_string()}")
+        else:
+            print("  DIAGNOSTIC NSL-KDD ERROR: 'label' column not found after assignment!")
     else: # netML and lengths differ
         logger.critical(f"[{file_type}] CRITICAL: Length mismatch for netML between group_mapped_df ({len(group_mapped_df)}) and data ({len(data)}). Cannot assign 'label'.")
         # To prevent KeyError, ensure 'label' column exists, even if problematic
