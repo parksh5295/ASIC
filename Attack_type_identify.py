@@ -174,9 +174,13 @@ def main():
     association_method = args.association
 
     data_csv_path, _ = file_path_line_association(file_type, file_number)
-    signature_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_{association_method}_{file_number}_confidence_signature_train_ea15.csv'
-    output_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_attack_identification_results.csv'
-    # detailed_output_csv_path = f'Dataset_Paral/signature/{file_type}/{file_type}_detailed_signature_results.csv' # Commented out
+    # Construct absolute path for signature_csv_path
+    base_signature_dir = os.path.expanduser(f"~/asic/Dataset_Paral/signature/{file_type}")
+    signature_csv_path = os.path.join(base_signature_dir, f'{file_type}_{association_method}_{file_number}_confidence_signature_train_ea15.csv')
+    print(f"Debug: Looking for signature file at: {signature_csv_path}") # Added for debugging
+
+    output_csv_path = os.path.join(base_signature_dir, f'{file_type}_attack_identification_results.csv') # Also make output path absolute
+    # detailed_output_csv_path = os.path.join(base_signature_dir, f'{file_type}_detailed_signature_results.csv') # Commented out
 
     with open(data_csv_path, mode='r', newline='') as data_file:
         data_reader = csv.DictReader(data_file)
