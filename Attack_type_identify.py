@@ -143,10 +143,14 @@ def main():
 
     print("Mapping completed. Group mapped data:", group_mapped_df.head())
 
-    # Remove rare columns
-    min_support_ratio_for_rare = 0.01 if file_type in ['NSL-KDD', 'NSL_KDD'] else 0.1
-    min_distinct = 1 if file_type in ['NSL-KDD', 'NSL_KDD'] else 2
-    group_mapped_df = remove_rare_columns(group_mapped_df, min_support_ratio_for_rare, file_type, min_distinct_frequent_values=min_distinct)
+    # Convert only the mapped columns to numeric before removing rare columns
+    mapped_columns = category_mapping['interval'].columns
+    group_mapped_df[mapped_columns] = group_mapped_df[mapped_columns].apply(pd.to_numeric, errors='coerce')
+
+    # Remove rare columns (if needed, otherwise this can be removed)
+    # min_support_ratio_for_rare = 0.01 if file_type in ['NSL-KDD', 'NSL_KDD'] else 0.1
+    # min_distinct = 1 if file_type in ['NSL-KDD', 'NSL_KDD'] else 2
+    # group_mapped_df = remove_rare_columns(group_mapped_df, min_support_ratio_for_rare, file_type, min_distinct_frequent_values=min_distinct)
 
     with open(signature_csv_path, mode='r', newline='') as sig_file:
         sig_reader = csv.DictReader(sig_file)

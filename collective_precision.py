@@ -33,4 +33,4 @@ def main(csv_file_path):
             print(f"Average Conditions per Signature: {avg_conditions}")
 
 
-main('D:\\AutoSigGen_withData\\Dataset_Paral\\signature\\NSL-KDD\\NSL-KDD_RARM_1_confidence_signature_train_ea15.csv')
+main('D:\\AutoSigGen_withData\\Dataset_Paral\\signature\\MiraiBotnet\\MiraiBotnet_RARM_1_confidence_signature_train_ea15_cut40.csv')
