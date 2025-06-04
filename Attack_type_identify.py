@@ -100,9 +100,8 @@ def main():
     else:
         attack_type_column = 'AttackType'
 
-    # Load mapping information
-    signature_dir = os.path.dirname(signature_csv_path)
-    mapping_file_path = os.path.join(signature_dir, f"{file_type}_{file_number}_mapped_info.csv")
+    # Use absolute path for mapping file
+    mapping_file_path = os.path.expanduser(f"~/asic/Dataset_Paral/signature/{file_type}/{file_type}_{file_number}_mapped_info.csv")
     print(f"Debug: Looking for mapping file at: {mapping_file_path}")
     if not os.path.exists(mapping_file_path):
         raise FileNotFoundError(f"Mapping file not found: {mapping_file_path}")
