@@ -128,18 +128,18 @@ def main():
     data_list = [pd.DataFrame(), pd.DataFrame()]
 
     # Perform mapping only for columns present in mapping_info_df
-    columns_to_map = [col for col in data.columns if col in mapping_info_df.columns]
-    data_to_map = data[columns_to_map]
+    columns_to_map = [col for col in data_df.columns if col in mapping_info_df.columns]
+    data_to_map = data_df[columns_to_map]
 
     # Perform mapping
     group_mapped_df, _ = map_intervals_to_groups(data_to_map, category_mapping, data_list, regul='N')
 
     # Add unmapped columns back to the DataFrame
-    unmapped_columns = [col for col in data.columns if col not in columns_to_map]
-    group_mapped_df = pd.concat([group_mapped_df, data[unmapped_columns]], axis=1)
+    unmapped_columns = [col for col in data_df.columns if col not in columns_to_map]
+    group_mapped_df = pd.concat([group_mapped_df, data_df[unmapped_columns]], axis=1)
 
     # Add the label from the source data to group_mapped_df
-    group_mapped_df['label'] = data['label']
+    group_mapped_df['label'] = data_df['label']
 
     print("Mapping completed. Group mapped data:", group_mapped_df.head())
 
