@@ -101,7 +101,8 @@ def main():
         attack_type_column = 'AttackType'
 
     # Load mapping information
-    mapping_file_path = f"{file_type}_{file_number}_mapped_info.csv"
+    signature_dir = os.path.dirname(signature_csv_path)
+    mapping_file_path = os.path.join(signature_dir, f"{file_type}_{file_number}_mapped_info.csv")
     if not os.path.exists(mapping_file_path):
         raise FileNotFoundError(f"Mapping file not found: {mapping_file_path}")
     mapping_info_df = pd.read_csv(mapping_file_path)
