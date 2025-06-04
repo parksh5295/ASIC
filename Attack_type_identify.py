@@ -7,45 +7,21 @@ from utils.class_row import anomal_class_data, nomal_class_data, without_label
 from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
+import multiprocessing
 
+
+def evaluate_signature_task(signature, data, attack_type_column):
+    attack_type = signature['signature_name']['Signature_dict'].get(attack_type_column, 'Unknown')
+    return {
+        'Signature': signature['signature_name']['Signature_dict'],
+        'Identified Attack': attack_type
+    }
 
 def evaluate_signatures(signature_data, data, attack_type_column):
-    results = {}
-    detailed_results = []
-    for signature in signature_data:
-        attack_type = signature['signature_name']['Signature_dict'].get(attack_type_column, 'Unknown')
-        if attack_type not in results:
-            results[attack_type] = {'true_positive': 0, 'false_positive': 0, 'false_negative': 0}
-        
-        # Calculate precision and recall by comparing attack types in the dataset to those in the signature
-        for row in data:
-            actual_attack_type = row[attack_type_column]  # Use the attack type column name in the dataset
-            if attack_type == actual_attack_type:
-                results[attack_type]['true_positive'] += 1
-            else:
-                results[attack_type]['false_positive'] += 1
-                results[attack_type]['false_negative'] += 1
-
-        # Add detailed results for each signature
-        detailed_results.append({
-            'Signature': signature['signature_name']['Signature_dict'],
-            'Identified Attack': attack_type,
-            'True Positives': results[attack_type]['true_positive'],
-            'False Positives': results[attack_type]['false_positive'],
-            'False Negatives': results[attack_type]['false_negative']
-        })
-
-    # Calculate precision and recall
-    for attack_type, metrics in results.items():
-        tp = metrics['true_positive']
-        fp = metrics['false_positive']
-        fn = metrics['false_negative']
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        results[attack_type]['precision'] = precision
-        results[attack_type]['recall'] = recall
-
-    return results, detailed_results
+    # Use multiprocessing to evaluate signatures in parallel
+    with multiprocessing.Pool() as pool:
+        detailed_results = pool.starmap(evaluate_signature_task, [(signature, data, attack_type_column) for signature in signature_data])
+    return detailed_results
 
 def write_results_to_csv(results, output_file_path):
     with open(output_file_path, mode='w', newline='') as file:
@@ -62,21 +38,11 @@ def write_results_to_csv(results, output_file_path):
 def write_detailed_results_to_csv(results, output_file_path):
     with open(output_file_path, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['Signature', 'Identified Attack', 'True Positives', 'False Positives', 'False Negatives', 'Precision', 'Recall'])
+        writer.writerow(['Signature', 'Identified Attack'])
         for result in results:
-            tp = result['True Positives']
-            fp = result['False Positives']
-            fn = result['False Negatives']
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
             writer.writerow([
                 result['Signature'],
-                result['Identified Attack'],
-                tp,
-                fp,
-                fn,
-                precision,
-                recall
+                result['Identified Attack']
             ])
 
 
@@ -146,9 +112,9 @@ def main():
         sig_reader = csv.DictReader(sig_file)
         for sig_row in sig_reader:
             signature_data = ast.literal_eval(sig_row['Verified_Signatures'])
-            results, detailed_results = evaluate_signatures(signature_data, group_mapped_df, attack_type_column)
+            results = evaluate_signatures(signature_data, group_mapped_df, attack_type_column)
             write_results_to_csv(results, output_csv_path)
-            write_detailed_results_to_csv(detailed_results, detailed_output_csv_path)
+            write_detailed_results_to_csv(results, detailed_output_csv_path)
 
 if __name__ == '__main__':
     main()
