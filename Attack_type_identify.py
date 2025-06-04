@@ -8,6 +8,7 @@ from utils.remove_rare_columns import remove_rare_columns
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
 import multiprocessing
+from Heterogeneous_Method.separate_group_mapping import map_intervals_to_groups
 
 
 def evaluate_signature_task(signature, data, attack_type_column):
@@ -99,9 +100,47 @@ def main():
     else:
         attack_type_column = 'AttackType'
 
-    # Group mapping
-    group_mapped_df = anomal_class_data(data_df)
-    group_mapped_df = without_label(group_mapped_df)
+    # Load mapping information
+    mapping_file_path = f"{file_type}_{file_number}_mapped_info.csv"
+    if not os.path.exists(mapping_file_path):
+        raise FileNotFoundError(f"Mapping file not found: {mapping_file_path}")
+    mapping_info_df = pd.read_csv(mapping_file_path)
+
+    # Extract mapping information
+    category_mapping = {
+        'interval': {},
+        'categorical': pd.DataFrame(),
+        'binary': pd.DataFrame()
+    }
+
+    for column in mapping_info_df.columns:
+        column_mappings = []
+        for value in mapping_info_df[column].dropna():
+            if isinstance(value, str) and '=' in value:
+                column_mappings.append(value)
+        if column_mappings:
+            category_mapping['interval'][column] = pd.Series(column_mappings)
+
+    category_mapping['interval'] = pd.DataFrame(category_mapping['interval'])
+
+    # Create data_list
+    data_list = [pd.DataFrame(), pd.DataFrame()]
+
+    # Perform mapping only for columns present in mapping_info_df
+    columns_to_map = [col for col in data.columns if col in mapping_info_df.columns]
+    data_to_map = data[columns_to_map]
+
+    # Perform mapping
+    group_mapped_df, _ = map_intervals_to_groups(data_to_map, category_mapping, data_list, regul='N')
+
+    # Add unmapped columns back to the DataFrame
+    unmapped_columns = [col for col in data.columns if col not in columns_to_map]
+    group_mapped_df = pd.concat([group_mapped_df, data[unmapped_columns]], axis=1)
+
+    # Add the label from the source data to group_mapped_df
+    group_mapped_df['label'] = data['label']
+
+    print("Mapping completed. Group mapped data:", group_mapped_df.head())
 
     # Remove rare columns
     min_support_ratio_for_rare = 0.01 if file_type in ['NSL-KDD', 'NSL_KDD'] else 0.1
