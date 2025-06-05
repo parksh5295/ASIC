@@ -5,7 +5,7 @@ import logging
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
-from utils.time_transfer import time_scalar_transfer
+from utils.time_transfer import time_scalar_transfer, convert_cic_time_to_numeric_scalars
 # map_intervals_to_groups is removed as we will use _apply_numeric_interval_mapping_for_fake_sigs for all interval cols
 # from Heterogeneous_Method.separate_group_mapping import map_intervals_to_groups 
 from Modules.Association_module import association_module
@@ -42,6 +42,13 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         print("Applying time scalar transfer...")
         full_data = time_scalar_transfer(full_data, file_type)
+        
+        # Apply CICModbus specific numeric time scalar conversion if applicable
+        if file_type in ['CICModbus23', 'CICModbus']:
+            logger.info(f"Applying CICModbus specific numeric time scalar conversion for {file_type} within fake signature generation...")
+            if full_data is not None and not full_data.empty: # Check if full_data is a DataFrame and not None
+                full_data = convert_cic_time_to_numeric_scalars(full_data)
+
         # Date_scalar is now numeric (Unix timestamp)
 
         # Debugging after time_scalar_transfer (can be enabled if needed)
