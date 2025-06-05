@@ -17,6 +17,8 @@ from Validation.Validation_util import (
     _apply_categorical_mapping_for_fake_sigs # Importing Newly Added Functions
 )
 
+from Validation.generation_asso import temp_rarm_for_fake_fp
+
 logger = logging.getLogger(__name__)
 
 def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_list, association_method, association_metric, num_fake_signatures=3, min_support=0.3, min_confidence=0.8):
@@ -191,89 +193,84 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         print(f"Shape of final mapped ANOMALOUS data for association rules: {mapped_df.shape}")
 
         # 5. Run association rule mining on the (now anomalous) mapped data.
-        min_support = 0.2 # As per user request for fake signature generation
-        _internal_fixed_confidence = 0.7
-        print(f"Running {association_method} on ANOMALOUS data (min_support={min_support}, using fixed min_confidence={_internal_fixed_confidence})...")
-        
-        # Ensure all columns in mapped_df are of a type that association_module can handle (e.g., int, category)
-        # If _apply_numeric_interval_mapping_for_fake_sigs returns float for mapped categories, convert to int.
-        for col in mapped_df.columns:
-            if pd.api.types.is_float_dtype(mapped_df[col]):
-                # Attempt to convert to integer; if it fails due to non-integer floats (e.g. NaN still present if dropna failed for some reason)
-                # this might need more robust handling or ensuring _apply_numeric... returns int-compatible types.
-                try:
-                    mapped_df[col] = mapped_df[col].astype(pd.Int64Dtype()) # Allows <NA>
-                except Exception as e_astype:
-                    print(f"Warning: Could not convert column {col} to Int64Dtype: {e_astype}. It might contain non-integer floats or unhandled NaNs.")
-        
-        rules_df = association_module(
-            mapped_df, 
-            association_method,
-            association_metric=association_metric,
-            min_support=min_support,
-            min_confidence=_internal_fixed_confidence
+        # The _internal_fixed_confidence was originally a value passed to the RARM module, but temp_rarm_for_fake_fp uses its own fixed_confidence.
+        # min_support is passed to temp_rarm_for_fake_fp as min_support_threshold.
+        # association_method is not directly used when calling temp_rarm_for_fake_fp, but can be kept for logging, etc.
+        logger.info(f"Using temporary RARM logic for fake FP signature generation from Validation.generation_asso.py")
+        logger.info(f"Targeting {num_fake_signatures} fake FPs with min_support={min_support} for itemset generation.")
+
+        # temp_rarm_for_fake_fp compares values directly without string conversion
+
+        rules_df = temp_rarm_for_fake_fp(
+            df=mapped_df, 
+            min_support_threshold=min_support, 
+            num_rules_to_generate=num_fake_signatures, # Try to generate the target number of rules
+            itemset_size=2,  # Example: Generate 2-itemset rules (adjustable)
+            fixed_confidence=0.95 # Give high fixed confidence to generated rules (for min_confidence filter)
         )
+        # temp_rarm_for_fake_fp returns a list of dictionaries in the form of {'col':'val', 'confidence': X, 'support': Y}
 
         # 6. Filter rules based on the association_metric (e.g., confidence)
-        # rules_df is what's returned by association_module. It can be a DataFrame or a list of dicts.
-        filtered_rules = [] # This will store a list of rule dictionaries
+        # rules_df is now a list of dictionaries containing 'confidence' and 'support'
+        filtered_rules = [] 
         
-        # Check if rules_df actually contains rules before trying to process
-        if rules_df is not None: 
-            if isinstance(rules_df, pd.DataFrame):
-                if not rules_df.empty and association_metric in rules_df.columns:
-                    logger.info(f"Filtering {len(rules_df)} rules (DataFrame) by {association_metric} >= {min_confidence}")
-                    # Apply filter
-                    filtered_rules_df = rules_df[rules_df[association_metric] >= min_confidence]
-                    # Convert to list of dicts for unified processing later
-                    filtered_rules = filtered_rules_df.to_dict(orient='records')
-                else:
-                    logger.warning(f"'rules_df' is a DataFrame but it's empty or missing the '{association_metric}' column. No rules to filter.")
-            elif isinstance(rules_df, list):
-                if rules_df: # Check if list is not empty
-                    logger.info(f"Filtering {len(rules_df)} rules (list of dicts) by '{association_metric}' >= {min_confidence}")
-                    for rule_dict in rules_df:
-                        if isinstance(rule_dict, dict):
-                            if association_metric in rule_dict and rule_dict[association_metric] >= min_confidence:
-                                filtered_rules.append(rule_dict)
-                            elif association_metric not in rule_dict:
-                                logger.warning(f"Skipping rule dict as it is missing '{association_metric}' key: {rule_dict}")
-                        else:
-                            logger.warning(f"Skipping item in rules list as it is not a dictionary: {rule_dict}")
-                else:
-                    logger.info("'rules_df' is an empty list. No rules to filter.")
+        if rules_df is not None and isinstance(rules_df, list):
+            if rules_df: # If the list is not empty
+                logger.info(f"Filtering {len(rules_df)} rules (list of dicts from temp_rarm) by '{association_metric}' >= {min_confidence}")
+                for rule_dict in rules_df:
+                    if isinstance(rule_dict, dict):
+                        # temp_rarm_for_fake_fp returns the association_metric (usually 'confidence')
+                        if association_metric in rule_dict and rule_dict[association_metric] >= min_confidence:
+                            filtered_rules.append(rule_dict)
+                        elif association_metric not in rule_dict:
+                            logger.warning(f"Skipping rule dict from temp_rarm as it is missing '{association_metric}' key: {rule_dict}")
+                        # else: rule_dict[association_metric] < min_confidence (filtered)
+                    else:
+                        logger.warning(f"Skipping item in rules list from temp_rarm as it is not a dictionary: {rule_dict}")
             else:
-                logger.warning(f"'rules_df' is of an unexpected type: {type(rules_df)}. Expected DataFrame or list. No rules to filter.")
+                logger.info("Temporary RARM returned an empty list. No rules to filter.")
         else:
-            logger.info("No rules generated by association_module (rules_df is None). Nothing to filter.")
+            logger.warning(f"Temporary RARM returned an unexpected type: {type(rules_df)} or None. Expected a list.")
 
-        # Sort rules by confidence (or other metric) and select top N
-        top_rules = [] # This will store the final list of rule dictionaries to be converted to signatures
+        # Sort rules by the association_metric (e.g., confidence) and select top N
+        top_rules = [] 
         if filtered_rules:
             try:
-                # Sort the list of dictionaries
+                # temp_rarm_for_fake_fp uses fixed_confidence, so all rules' confidence may be the same.
+                # Currently, sorting is done by association_metric (confidence).
                 filtered_rules.sort(key=lambda x: x.get(association_metric, float('-inf')), reverse=True)
-                top_rules = filtered_rules[:num_fake_signatures]
+                top_rules = filtered_rules[:num_fake_signatures] # Select the top num_fake_signatures rules
                 logger.info(f"Selected top {len(top_rules)} rules after filtering and sorting.")
-            except KeyError as e: # Should be caught by get if metric is missing, but good for safety
-                logger.error(f"Error sorting rules: A rule dictionary was missing the key '{association_metric}'. Error: {e}")
+            except KeyError as e: 
+                logger.error(f"Error sorting rules from temp_rarm: A rule dictionary was missing the key '{association_metric}'. Error: {e}")
             except TypeError as e:
-                 logger.error(f"Error sorting rules: Could not sort rules, possibly due to incompatible types for metric '{association_metric}'. Error: {e}. Rule sample: {filtered_rules[0] if filtered_rules else 'N/A'}")
+                 logger.error(f"Error sorting rules from temp_rarm: Could not sort rules, possibly due to incompatible types for metric '{association_metric}'. Error: {e}. Rule sample: {filtered_rules[0] if filtered_rules else 'N/A'}")
         else:
-            logger.info("No rules met the filtering criteria or no rules were generated initially.")
+            logger.info("No rules met the filtering criteria from temp_rarm output, or no rules were generated initially.")
 
-        # 7. Convert the top rules (which are now a list of dicts) into the desired signature format.
-        fake_signatures_df, actual_num_generated = _convert_rules_to_signatures(
+        # 7. Convert the top rules into the desired signature format.
+        # _convert_rules_to_signatures now receives a list of dictionaries in the form of {'rule_dict': {conditions..., 'confidence':value, 'support':value}}
+        # _convert_rules_to_signatures wraps each dictionary in top_rules with {'rule_dict': original_dictionary}
+        # At this point, the original_dictionary already contains confidence and support.
+        fake_signatures_list, actual_num_generated = _convert_rules_to_signatures(
             top_rules, 
-            item_mapping_df, # This should be defined from _generate_transactions_and_mapping
+            item_mapping_df, # Still may be an empty DataFrame
             file_type,
-            is_fake_positive=True, # These are FP signatures
-            category_mapping=category_mapping # Pass along for potential use
+            is_fake_positive=True, 
+            category_mapping=category_mapping 
         )
-        if actual_num_generated > 0:
-            logger.info(f"Successfully generated {actual_num_generated} fake FP signatures.")
+        
+        if fake_signatures_list:
+            fake_signatures_df = pd.DataFrame(fake_signatures_list)
+            if not fake_signatures_df.empty and 'rule_dict' not in fake_signatures_df.columns:
+                logger.error("CRITICAL: fake_signatures_df created from _convert_rules_to_signatures output is missing 'rule_dict' column.")
         else:
-            logger.info("No fake FP signatures were generated by _convert_rules_to_signatures (it returned 0).")
+            fake_signatures_df = pd.DataFrame()
+
+        if actual_num_generated > 0:
+            logger.info(f"Successfully generated {actual_num_generated} fake FP signatures via _convert_rules_to_signatures using temp_rarm.")
+        else:
+            logger.info("No fake FP signatures were generated by _convert_rules_to_signatures (it returned 0 or an empty list) using temp_rarm.")
 
         # Ensure frequent_itemsets_df is defined, even if empty, if it's part of the function's return signature.
         if 'frequent_itemsets_df' not in locals():

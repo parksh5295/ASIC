@@ -354,20 +354,32 @@ def main(args):
         logger.info(f"Summary of FP evaluation for loaded signatures:\n{summary}")
 
     logger.info("\n--- Generating and Evaluating Fake FP Signatures ---")
-    fake_fp_rules = generate_fake_fp_signatures(
+    # Unpack the tuple returned by generate_fake_fp_signatures
+    # We are interested in the first element (list of signature dicts) 
+    # and potentially the count of actually generated signatures (last element).
+    returned_values = generate_fake_fp_signatures(
         args.file_type, args.file_number, category_mapping, [], 
         association_method=args.association, association_metric=args.association_metric,
         num_fake_signatures=args.num_fake_signatures, min_support=args.fake_min_support)
+    
+    fake_fp_rules_list = returned_values[0] # The list of signature dicts
+    # actual_num_generated_by_func = returned_values[5] # If needed for logging
 
-    if not fake_fp_rules:
-        logger.info("No fake FP signatures were generated.")
+    if not fake_fp_rules_list: # Check the list itself
+        logger.info("No fake FP signatures were generated (list is empty).")
     else:
-        logger.info(f"Generated {len(fake_fp_rules)} fake FP signatures.")
-        for i, rule in enumerate(fake_fp_rules):
-            if 'id' not in rule: rule['id'] = f"fake_fp_sig_{i+1}"
-            if 'name' not in rule: rule['name'] = f"Fake FP Signature {i+1}"
+        logger.info(f"Generated {len(fake_fp_rules_list)} fake FP signatures.")
+        for i, rule in enumerate(fake_fp_rules_list):
+            # Now, 'rule' should be a dictionary from the list
+            if isinstance(rule, dict):
+                if 'id' not in rule: rule['id'] = f"fake_fp_sig_{i+1}"
+                if 'name' not in rule: rule['name'] = f"Fake FP Signature {i+1}"
+            else:
+                logger.warning(f"Skipping item in fake_fp_rules_list as it is not a dict: {rule}")
+                continue # Skip to the next item
 
-        fake_alerts_df = apply_signatures_to_dataset(mapped_attack_free_df, fake_fp_rules)
+        # Use fake_fp_rules_list for apply_signatures_to_dataset
+        fake_alerts_df = apply_signatures_to_dataset(mapped_attack_free_df, fake_fp_rules_list)
 
         if fake_alerts_df.empty:
             logger.info("No alerts generated from attack-free data with fake FP signatures.")
@@ -377,7 +389,7 @@ def main(args):
                 fake_alerts_df, mapped_attack_free_df, file_type=args.file_type,
                 t0_nra=args.t0_nra, n0_nra=args.n0_nra,
                 lambda_haf=args.lambda_haf, lambda_ufp=args.lambda_ufp)
-            fake_signatures_map = {sig['id']: sig for sig in fake_fp_rules}
+            fake_signatures_map = {sig['id']: sig for sig in fake_fp_rules_list}
             evaluated_fake_fp_df = evaluate_false_positives(
                 fake_fp_scores_df, fake_signatures_map, known_fp_sig_dicts=[],
                 attack_free_df=mapped_attack_free_df, file_type=args.file_type,
