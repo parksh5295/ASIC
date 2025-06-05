@@ -290,6 +290,35 @@ def main(args):
     processed_attack_free_df = time_scalar_transfer(raw_attack_free_df.copy(), args.file_type)
     processed_test_df = time_scalar_transfer(raw_test_df.copy(), args.file_type)
     
+    # --- DEBUG LOGGING START ---
+    logger.info("--- Debugging: Category Mapping for Date/Time Scalars ---")
+    if category_mapping and 'interval' in category_mapping and isinstance(category_mapping['interval'], pd.DataFrame):
+        interval_df = category_mapping['interval']
+        if 'Date_scalar' in interval_df.columns:
+            logger.info(f"Mapping rules for Date_scalar:\n{interval_df['Date_scalar'].dropna().unique().tolist()}")
+        else:
+            logger.info("No Date_scalar mapping rules found in category_mapping['interval'].")
+        if 'StartTime_scalar' in interval_df.columns:
+            logger.info(f"Mapping rules for StartTime_scalar:\n{interval_df['StartTime_scalar'].dropna().unique().tolist()}")
+        else:
+            logger.info("No StartTime_scalar mapping rules found in category_mapping['interval'].")
+    else:
+        logger.info("category_mapping['interval'] is not a DataFrame or not found.")
+
+    logger.info("--- Debugging: Processed DataFrame Date/Time Scalar Values (sample) ---")
+    if not processed_attack_free_df.empty:
+        if 'Date_scalar' in processed_attack_free_df.columns:
+            logger.info(f"Sample Date_scalar values from processed_attack_free_df (first 5 unique non-NaN):\n{processed_attack_free_df['Date_scalar'].dropna().unique()[:5]}")
+        else:
+            logger.info("Date_scalar column not found in processed_attack_free_df.")
+        if 'StartTime_scalar' in processed_attack_free_df.columns:
+            logger.info(f"Sample StartTime_scalar values from processed_attack_free_df (first 5 unique non-NaN):\n{processed_attack_free_df['StartTime_scalar'].dropna().unique()[:5]}")
+        else:
+            logger.info("StartTime_scalar column not found in processed_attack_free_df.")
+    else:
+        logger.info("processed_attack_free_df is empty before mapping.")
+    # --- DEBUG LOGGING END ---
+
     logger.info("Mapping datasets using category_mapping...")
     mapped_attack_free_df = map_data_using_category_mapping(processed_attack_free_df, category_mapping, file_type=args.file_type)
     mapped_test_df = map_data_using_category_mapping(processed_test_df, category_mapping, file_type=args.file_type)
