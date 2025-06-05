@@ -7,6 +7,7 @@ import os
 import sys
 import ast
 from datetime import datetime
+import io
 
 # Set the project root path based on the path of the current script (adjust as needed)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -377,6 +378,20 @@ def main(args):
             else:
                 logger.warning(f"Skipping item in fake_fp_rules_list as it is not a dict: {rule}")
                 continue # Skip to the next item
+
+        # --- START DEBUG ---
+        # Verify the state of mapped_attack_free_df just before applying fake signatures
+        logger.info("--- Verifying `mapped_attack_free_df` before applying fake signatures ---")
+        if not mapped_attack_free_df.empty:
+            logger.info(f"Shape of mapped_attack_free_df: {mapped_attack_free_df.shape}")
+            # Use a buffer to capture the output of .info() to logger
+            buf = io.StringIO()
+            mapped_attack_free_df.info(buf=buf)
+            logger.info(f"Dtypes of mapped_attack_free_df:\n{buf.getvalue()}")
+            logger.info(f"Sample values of mapped_attack_free_df (first 5 rows):\n{mapped_attack_free_df.head().to_string()}")
+        else:
+            logger.warning("`mapped_attack_free_df` is empty before applying fake signatures.")
+        # --- END DEBUG ---
 
         # Use fake_fp_rules_list for apply_signatures_to_dataset
         fake_alerts_df = apply_signatures_to_dataset(mapped_attack_free_df, fake_fp_rules_list)
