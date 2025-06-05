@@ -52,37 +52,82 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feat
         return pd.Series(np.nan, index=data_series.index, dtype=np.float64)
 
     try:
-        parsed_rules.sort(key=lambda x: (x[0], x[1]))
+        # Sort by lower bound, then upper bound to handle overlapping rules if any (though usually not expected for well-defined bins)
+        parsed_rules.sort(key=lambda x: (x[0], x[1])) 
     except TypeError:
         print(f"Warning: Could not sort parsed_rules for {feature_name or data_series.name}. Proceeding without sorting.")
 
     mapped_values = pd.Series(np.nan, index=data_series.index, dtype=np.float64)
     
     data_to_map = data_series
-    if feature_name == 'Date_scalar' and pd.api.types.is_datetime64_any_dtype(data_series):
-        # print(f"DEBUG_FAKE_SIG_MAP: Converting Date_scalar (datetime) to numeric timestamp for mapping.")
-        # Convert datetime to Unix timestamp (seconds, float) for comparison with numeric rules
-        data_to_map = data_series.apply(lambda x: x.timestamp() if pd.notna(x) else np.nan).astype(float)
-    else:
-        # For other features, or if Date_scalar is already numeric for some reason
-        data_to_map = pd.to_numeric(data_series, errors='coerce')
+    # Ensure data_to_map is numeric. Date_scalar from convert_cic_time_to_numeric_scalars should already be float.
+    if not pd.api.types.is_numeric_dtype(data_to_map):
+        if feature_name == 'Date_scalar' and pd.api.types.is_datetime64_any_dtype(data_series):
+            # This case should ideally not be hit if convert_cic_time_to_numeric_scalars was called for Date_scalar
+            data_to_map = data_series.apply(lambda x: x.timestamp() if pd.notna(x) else np.nan).astype(float)
+        else:
+            data_to_map = pd.to_numeric(data_series, errors='coerce')
     
     valid_data_mask = data_to_map.notna()
+    if not valid_data_mask.any(): # if all data is NaN after to_numeric, return all NaNs
+        return mapped_values
 
+    # Apply rules
     for lower, upper, l_incl, u_incl, group_idx in parsed_rules:
         condition = pd.Series(True, index=data_to_map.index)
+        # Apply conditions only on valid (non-NaN) data to avoid comparison errors
         if l_incl:
-            condition &= (data_to_map >= lower)
+            condition[valid_data_mask] &= (data_to_map[valid_data_mask] >= lower)
         else:
-            condition &= (data_to_map > lower)
+            condition[valid_data_mask] &= (data_to_map[valid_data_mask] > lower)
         if u_incl:
-            condition &= (data_to_map <= upper)
+            condition[valid_data_mask] &= (data_to_map[valid_data_mask] <= upper)
         else:
-            condition &= (data_to_map < upper)
+            condition[valid_data_mask] &= (data_to_map[valid_data_mask] < upper)
         
-        final_condition = condition & valid_data_mask
-        mapped_values.loc[final_condition] = group_idx
+        # Only update mapped_values for rows that match the current rule AND were originally valid
+        # This ensures that original NaNs in data_to_map remain NaN in mapped_values unless explicitly mapped
+        final_condition_for_assignment = condition & valid_data_mask
+        mapped_values.loc[final_condition_for_assignment] = group_idx
+    
+    # --- Overflow handling for Date_scalar --- 
+    if feature_name == 'Date_scalar' and parsed_rules:
+        # Find the rule with the maximum upper bound
+        max_upper_bound = -np.inf
+        group_for_max_upper_bound = np.nan
+        # Find the rule with the minimum lower bound
+        min_lower_bound = np.inf
+        group_for_min_lower_bound = np.nan
+
+        for r_lower, r_upper, _, _, r_group in parsed_rules:
+            if r_upper > max_upper_bound:
+                max_upper_bound = r_upper
+                group_for_max_upper_bound = r_group
+            if r_lower < min_lower_bound:
+                min_lower_bound = r_lower
+                group_for_min_lower_bound = r_group
+
+        if pd.notna(group_for_max_upper_bound):
+            # Identify values that are still NaN after rule application, were originally valid,
+            # and are greater than the max upper bound of all rules.
+            overflow_condition = (
+                mapped_values.isna() & 
+                valid_data_mask & 
+                (data_to_map > max_upper_bound)
+            )
+            mapped_values.loc[overflow_condition] = group_for_max_upper_bound
         
+        # Optional: Handle underflow (values less than the minimum lower bound)
+        if pd.notna(group_for_min_lower_bound):
+            underflow_condition = (
+                mapped_values.isna() & 
+                valid_data_mask & 
+                (data_to_map < min_lower_bound)
+            )
+            # Decide how to treat underflow, e.g., map to the first group or a special group
+            # mapped_values.loc[underflow_condition] = group_for_min_lower_bound # Or 0, or specific underflow group_idx
+            # For now, only explicit overflow handling as per the primary issue observed.
+
     return mapped_values
 
 # Helper function for parallel calculation of single signature contribution
