@@ -369,22 +369,28 @@ def main(args):
         file_type=args.file_type
     )
 
-    summary = summarize_fp_results(evaluated_fp_df)
+    summary_df = summarize_fp_results(evaluated_fp_df)
 
     # Log summary for fake signatures that were caught or escaped
     if fake_sig_ids:
-        caught_fakes = {k: v for k, v in summary.get('High FP Signatures', {}).items() if k in fake_sig_ids}
-        escaped_fakes = fake_sig_ids - set(caught_fakes.keys())
+        # A signature is "caught" if it's marked as a likely false positive
+        caught_fakes_df = summary_df[summary_df['signature_id'].isin(fake_sig_ids) & summary_df['final_likely_fp']]
+        caught_fake_ids = set(caught_fakes_df['signature_id'])
+        
+        escaped_fakes_ids = fake_sig_ids - caught_fake_ids
+        
         logger.info(f"\n--- FAKE SIGNATURE ANALYSIS ---")
-        logger.info(f"Caught Fake Signatures: {len(caught_fakes)} out of {len(fake_sig_ids)}")
-        if caught_fakes:
-            logger.info(f"Caught IDs: {list(caught_fakes.keys())}")
-        logger.info(f"Escaped Fake Signatures: {len(escaped_fakes)}")
-        if escaped_fakes:
-             logger.info(f"Escaped IDs: {list(escaped_fakes)}")
+        logger.info(f"Caught Fake Signatures: {len(caught_fake_ids)} out of {len(fake_sig_ids)}")
+        if caught_fake_ids:
+            logger.info(f"Caught IDs: {list(caught_fake_ids)}")
+        logger.info(f"Escaped Fake Signatures: {len(escaped_fakes_ids)}")
+        if escaped_fakes_ids:
+             logger.info(f"Escaped IDs: {list(escaped_fakes_ids)}")
 
     logger.info("\n--- OVERALL FP SUMMARY ---")
-    logger.info(json.dumps(summary, indent=4))
+    # Convert DataFrame to JSON for logging
+    summary_json = summary_df.to_json(orient='records', indent=4)
+    logger.info(summary_json)
     
     logger.info("Validation process finished.")
 

@@ -57,7 +57,7 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feat
 
     try:
         # Sort by lower bound, then upper bound to handle overlapping rules if any (though usually not expected for well-defined bins)
-        parsed_rules.sort(key=lambda x: (x[0], x[1])) 
+    parsed_rules.sort(key=lambda x: (x[0], x[1]))
     except TypeError:
         print(f"Warning: Could not sort parsed_rules for {feature_name or data_series.name}. Proceeding without sorting.")
 
@@ -131,7 +131,7 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feat
             # Decide how to treat underflow, e.g., map to the first group or a special group
             # mapped_values.loc[underflow_condition] = group_for_min_lower_bound # Or 0, or specific underflow group_idx
             # For now, only explicit overflow handling as per the primary issue observed.
-
+        
     return mapped_values
 
 # Helper function for parallel calculation of single signature contribution
@@ -302,39 +302,52 @@ def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dic
     mapped_df = data_df.copy()
     logger.info(f"Initialized mapped_df with shape {mapped_df.shape} to preserve all original columns.")
 
+    if file_type in ['CICIDS2017', 'CICIDS2018', 'CICModbus2022', 'CICModbus23']:
+        logger.info(f"Applying time scalar conversion for {file_type}...")
+        # This conversion is crucial for time-based features in signatures.
+        # Ensure the 'Time' column exists and is in the correct format.
+        if 'Time' in mapped_df.columns:
+            mapped_df = convert_cic_time_to_numeric_scalars(mapped_df, 'Time')
+            logger.info("Time scalar conversion complete.")
+            # The new columns are 'Date_scalar' and 'Time_of_day_scalar'
+        else:
+            logger.warning("Time column not found, skipping scalar conversion. This may affect time-based signatures.")
+
     # --- 1. Interval Mapping ---
     interval_mapping_df = category_mapping.get('interval')
     if isinstance(interval_mapping_df, pd.DataFrame) and not interval_mapping_df.empty:
-        features_to_map = [col for col in interval_mapping_df.columns if col in data_df.columns]
+        features_to_map = [col for col in interval_mapping_df.columns if col in mapped_df.columns]
         logger.info(f"Applying interval mapping for {len(features_to_map)} features: {features_to_map}")
         for feature in features_to_map:
-            if data_df[feature].notna().any():
+            if mapped_df[feature].notna().any():
                 rule_series = interval_mapping_df[feature].dropna()
                 if not rule_series.empty:
-                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_df[feature], rule_series, feature_name=feature)
+                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(mapped_df[feature], rule_series, feature_name=feature)
                     mapped_df[feature] = mapped_series
+            else:
+                logger.warning(f"Feature '{feature}' for interval mapping not found in DataFrame or has all NaN values.")
     else:
         logger.info("No 'interval' mapping rules found or rules are empty.")
 
     # --- 2. Categorical Mapping ---
     categorical_rules = category_mapping.get('categorical')
     if isinstance(categorical_rules, dict) and categorical_rules:
-        features_to_map = [col for col in categorical_rules.keys() if col in data_df.columns]
+        features_to_map = [col for col in categorical_rules.keys() if col in mapped_df.columns]
         logger.info(f"Applying categorical mapping for {len(features_to_map)} features: {features_to_map}")
         for feature in features_to_map:
             mapping_dict = categorical_rules[feature]
-            if isinstance(mapping_dict, dict) and data_df[feature].notna().any():
+            if isinstance(mapping_dict, dict) and mapped_df[feature].notna().any():
                 # --- FINAL FIX: Robust mapping by converting both to string ---
                 logger.info(f"    Applying robust string-based mapping for '{feature}'.")
                 type_unified_mapping_dict = {str(k): v for k, v in mapping_dict.items()}
-                mapped_series = data_df[feature].astype(str).map(type_unified_mapping_dict)
+                mapped_series = mapped_df[feature].astype(str).map(type_unified_mapping_dict)
                 
                 # Add enhanced logging to diagnose mapping issues
                 nan_count = mapped_series.isnull().sum()
                 if nan_count > 0:
-                    total_count = len(data_df[feature].dropna())
+                    total_count = len(mapped_df[feature].dropna())
                     logger.warning(f"    For '{feature}', {nan_count} out of {total_count} values could not be mapped and resulted in NaN.")
-                    unmapped_values = data_df[feature][mapped_series.isnull()].unique()
+                    unmapped_values = mapped_df[feature][mapped_series.isnull()].unique()
                     logger.warning(f"    Sample of unmapped values for '{feature}': {unmapped_values[:5]}")
                 
                 mapped_df[feature] = mapped_series
@@ -345,13 +358,13 @@ def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dic
     # --- 3. Binary Mapping ---
     binary_rules = category_mapping.get('binary')
     if isinstance(binary_rules, dict) and binary_rules:
-        features_to_map = [col for col in binary_rules.keys() if col in data_df.columns]
+        features_to_map = [col for col in binary_rules.keys() if col in mapped_df.columns]
         logger.info(f"Applying binary mapping for {len(features_to_map)} features: {features_to_map}")
         for feature in features_to_map:
-            if data_df[feature].notna().any():
+            if mapped_df[feature].notna().any():
                  # For binary, often a direct boolean-to-int cast is sufficient if no explicit map is given
-                 if data_df[feature].dtype == bool:
-                     mapped_df[feature] = data_df[feature].astype(int)
+                 if mapped_df[feature].dtype == bool:
+                     mapped_df[feature] = mapped_df[feature].astype(int)
                  else:
                      logger.warning(f"Binary mapping for non-boolean column '{feature}' is ambiguous and was skipped.")
     else:
