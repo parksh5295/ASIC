@@ -381,13 +381,20 @@ def main(args):
         logger.info(f"Summary of FP evaluation for loaded signatures:\n{summary}")
 
     logger.info("\n--- Generating and Evaluating Fake FP Signatures ---")
-    # Unpack the tuple returned by generate_fake_fp_signatures
-    # We are interested in the first element (list of signature dicts) 
-    # and potentially the count of actually generated signatures (last element).
+    
+    # We must generate rules from the same data distribution they will be tested against.
+    # Therefore, we pass the `processed_attack_free_df` to the generation function.
+    # The function will then use THIS data to generate rules, instead of loading its own anomalous data.
     returned_values = generate_fake_fp_signatures(
-        args.file_type, args.file_number, category_mapping, [], 
-        association_method=args.association, association_metric=args.association_metric,
-        num_fake_signatures=args.num_fake_signatures, min_support=args.fake_min_support)
+        args.file_type, 
+        args.file_number, 
+        category_mapping, 
+        processed_attack_free_df, # <-- Pass the correct dataframe here instead of an empty list
+        association_method=args.association, 
+        association_metric=args.association_metric,
+        num_fake_signatures=args.num_fake_signatures, 
+        min_support=args.fake_min_support
+    )
     
     fake_fp_rules_list = returned_values[0] # The list of signature dicts
     # actual_num_generated_by_func = returned_values[5] # If needed for logging
