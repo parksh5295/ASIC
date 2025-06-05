@@ -328,29 +328,54 @@ def main(args):
 
     # List of hardcoded fake signatures that are likely to cause high FPs
     # These signatures do not use 'Date_scalar'.
-    fake_sigs_list = [
-        {
-            'id': 'fake_fp_sig_1',
-            'name': 'Fake FP - High Freq TargetIP',
-            'rule_dict': {'TargetIP': 5}
-        },
-        {
-            'id': 'fake_fp_sig_2',
-            'name': 'Fake FP - High Freq TransactionID',
-            'rule_dict': {'TransactionID': 1}
-        },
-        {
-            'id': 'fake_fp_sig_3',
-            'name': 'Fake FP - Very Common Combo',
-            'rule_dict': {'TargetIP': 5, 'TransactionID': 1}
-        },
-        {
-            'id': 'fake_fp_sig_4',
-            'name': 'Fake FP - Generic Attack',
-            # Rules to target specific groups in the 'Attack' column (values are examples)
-            'rule_dict': {'Attack': 4}
-        }
-    ]
+    if args.file_type in ['DARPA', 'DARPA98']:
+        fake_sigs_list = [
+            {
+                'id': 'fake_fp_sig_1',
+                'name': 'Fake FP - High Freq TargetIP',
+                'rule_dict': {'TargetIP': 5}
+            },
+            {
+                'id': 'fake_fp_sig_2',
+                'name': 'Fake FP - High Freq TransactionID',
+                'rule_dict': {'TransactionID': 1}
+            },
+            {
+                'id': 'fake_fp_sig_3',
+                'name': 'Fake FP - Very Common Combo',
+                'rule_dict': {'TargetIP': 5, 'TransactionID': 1}
+            },
+            {
+                'id': 'fake_fp_sig_4',
+                'name': 'Fake FP - Generic Attack',
+                # Rules to target specific groups in the 'Attack' column (values are examples)
+                'rule_dict': {'Attack': 4}
+            }
+        ]
+    elif args.file_type in ['CICModbus23']:
+        fake_sigs_list = [
+            {
+                'id': 'fake_fp_sig_1',
+                'name': 'Fake FP - High Freq TargetIP',
+                'rule_dict': {'TransactionID': 1}
+            },
+            {
+                'id': 'fake_fp_sig_2',
+                'name': 'Fake FP - High Freq TransactionID',
+                'rule_dict': {'TransactionID': 2}
+            },
+            {
+                'id': 'fake_fp_sig_3',
+                'name': 'Fake FP - Very Common Combo',
+                'rule_dict': {'TargetIP': 5}
+            },
+            {
+                'id': 'fake_fp_sig_4',
+                'name': 'Fake FP - Generic Attack',
+                # Rules to target specific groups in the 'Attack' column (values are examples)
+                'rule_dict': {'Date_scalar': 21}
+            }
+        ]
     # Update counts to reflect manually created lists
     args.num_fake_signatures = len(fake_sigs_list)
 
