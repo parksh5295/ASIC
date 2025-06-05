@@ -366,6 +366,15 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                 elif col_name == 'StartTime_scalar':
                     mapped_starttime_scalar = mapped_series.rename('StartTime_scalar_mapped')
                 
+                # === START DEBUG 1: Check individually mapped scalar columns ===
+                if col_name == 'Date_scalar' and mapped_date_scalar is not None:
+                    print(f"DEBUG_FAKE_SIGS: mapped_date_scalar head:\n{mapped_date_scalar.head().to_string()}")
+                    print(f"DEBUG_FAKE_SIGS: mapped_date_scalar NaNs: {mapped_date_scalar.isnull().sum()}")
+                if col_name == 'StartTime_scalar' and mapped_starttime_scalar is not None:
+                    print(f"DEBUG_FAKE_SIGS: mapped_starttime_scalar head:\n{mapped_starttime_scalar.head().to_string()}")
+                    print(f"DEBUG_FAKE_SIGS: mapped_starttime_scalar NaNs: {mapped_starttime_scalar.isnull().sum()}")
+                # === END DEBUG 1 ===
+
                 # Remove from data and category_mapping before passing to map_intervals_to_groups
                 if col_name in remaining_cols_for_map_intervals: # Should always be true here
                     remaining_cols_for_map_intervals.remove(col_name)
@@ -388,6 +397,10 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         print(f"Mapping remaining interval columns using original map_intervals_to_groups: {temp_category_mapping_interval.columns.tolist()}")
         if not data_for_map_intervals.empty and not temp_category_mapping_interval.empty:
             other_mapped_df, _ = map_intervals_to_groups(data_for_map_intervals, category_mapping_for_map_intervals, data_list, regul='N')
+            # === START DEBUG 2: Check other_mapped_df (from map_intervals_to_groups) ===
+            print(f"DEBUG_FAKE_SIGS: other_mapped_df head after map_intervals_to_groups:\n{other_mapped_df.head().to_string()}")
+            print(f"DEBUG_FAKE_SIGS: other_mapped_df NaNs after map_intervals_to_groups:\n{other_mapped_df.isnull().sum().to_string()}")
+            # === END DEBUG 2 ===
         else:
             print("INFO: No remaining columns or interval rules for map_intervals_to_groups. Creating empty DataFrame for other_mapped_df.")
             other_mapped_df = pd.DataFrame(index=normal_data_to_map.index) # Ensure index compatibility
@@ -403,7 +416,20 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             final_mapped_parts.append(mapped_starttime_scalar.rename('StartTime_scalar'))
         
         if final_mapped_parts:
+            # === START DEBUG 3a: Check parts before concat ===
+            print("DEBUG_FAKE_SIGS: Checking parts before pd.concat:")
+            for i, part_df in enumerate(final_mapped_parts):
+                if part_df is not None:
+                    print(f"  Part {i} ({part_df.name if hasattr(part_df, 'name') else 'DataFrame'}): shape={part_df.shape}, NaNs={part_df.isnull().sum().sum() if isinstance(part_df, pd.Series) else part_df.isnull().sum().sum()}")
+                    print(f"    Head:\n{part_df.head().to_string()}")
+                else:
+                    print(f"  Part {i} is None")
+            # === END DEBUG 3a ===
             normal_mapped_df = pd.concat(final_mapped_parts, axis=1)
+            # === START DEBUG 3b: Check normal_mapped_df after concat (this is the state just before dropna) ===
+            print(f"DEBUG_FAKE_SIGS: normal_mapped_df head AFTER concat (before dropna):\n{normal_mapped_df.head().to_string()}")
+            print(f"DEBUG_FAKE_SIGS: normal_mapped_df NaNs AFTER concat (before dropna):\n{normal_mapped_df.isnull().sum().to_string()}")
+            # === END DEBUG 3b ===
         else: # Should not happen if there was any data to map
             print("Warning: All parts for final mapped df are empty.")
             normal_mapped_df = pd.DataFrame(index=normal_data_to_map.index)
