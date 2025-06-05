@@ -329,6 +329,32 @@ def main(args):
     # --- DEBUG LOGGING END ---
 
     logger.info("Mapping datasets using category_mapping...")
+    
+    # --- START DEBUG ---
+    # Verify the inputs to map_data_using_category_mapping
+    logger.info("--- Verifying inputs to map_data_using_category_mapping for `attack_free_df` ---")
+    if not processed_attack_free_df.empty:
+        logger.info(f"Shape of `processed_attack_free_df`: {processed_attack_free_df.shape}")
+        # Log which columns are present before mapping
+        logger.info(f"Columns in `processed_attack_free_df`: {processed_attack_free_df.columns.tolist()}")
+        logger.info(f"Sample of `processed_attack_free_df` (first 5 rows):\n{processed_attack_free_df.head().to_string()}")
+    else:
+        logger.warning("`processed_attack_free_df` is empty before mapping.")
+        
+    if category_mapping:
+        logger.info("--- Verifying `category_mapping` rules ---")
+        if 'interval' in category_mapping and not category_mapping['interval'].empty:
+            logger.info(f"Interval mapping rules exist for columns: {category_mapping['interval'].columns.tolist()}")
+        else:
+            logger.info("No interval mapping rules found.")
+        if 'categorical' in category_mapping and not category_mapping['categorical'].empty:
+            logger.info(f"Categorical mapping rules exist for columns: {category_mapping['categorical'].columns.tolist()}")
+        else:
+            logger.info("No categorical mapping rules found.")
+    else:
+        logger.warning("`category_mapping` is empty or None.")
+    # --- END DEBUG ---
+
     mapped_attack_free_df = map_data_using_category_mapping(processed_attack_free_df, category_mapping, file_type=args.file_type)
     mapped_test_df = map_data_using_category_mapping(processed_test_df, category_mapping, file_type=args.file_type)
 
