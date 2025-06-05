@@ -261,11 +261,11 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         # 7. Convert the top rules into the desired signature format.
         fake_signatures_list, actual_num_generated = _convert_rules_to_signatures(
-            top_rules, 
-            item_mapping_df, # Still may be an empty DataFrame
-            file_type,
-            is_fake_positive=True, 
-            category_mapping=category_mapping 
+            top_rules_list_of_dicts=top_rules,
+            item_mapping_df=item_mapping_df, # Pass the initial empty one, it will be populated if needed
+            file_type=file_type,
+            is_fake_positive=True,
+            category_mapping=category_mapping
         )
         
         if fake_signatures_list:
@@ -286,12 +286,24 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         return fake_signatures_list, frequent_itemsets_df_placeholder
 
     except Exception as e:
-        print(f"Error during fake signature generation (intended from ANOMALOUS data): {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"An unexpected error occurred during fake signature generation: {e}", exc_info=True)
+        # Return empty structures in case of error
+        return [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 0, 0
+    
+    # Final step: Convert the generated rules (list of dicts) into the required signature format
+    final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final = _convert_rules_to_signatures(
+        top_rules_list_of_dicts=top_rules,
+        item_mapping_df=item_mapping_df, # Pass the initial empty one, it will be populated if needed
+        file_type=file_type,
+        is_fake_positive=True,
+        category_mapping=category_mapping
+    )
 
-    print("--- Fake FP Signature Generation (from ANOMALOUS data with 0.7 confidence) Complete ---")
-    return fake_signatures_df, item_mapping_df, frequent_itemsets_df, final_rules_df_to_return, signature_count, actual_num_generated
+    actual_num_generated = len(final_signatures_list)
+    logger.info(f"Successfully prepared {actual_num_generated} fake FP signature dicts via _convert_rules_to_signatures using temp_rarm.")
+
+    # Ensure to return all 6 expected values
+    return final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final, actual_num_generated, actual_num_generated
 
 # ---- Helper function to convert RARM rules to signature format ----
 def _convert_rules_to_signatures(top_rules_list_of_dicts, item_mapping_df, file_type, is_fake_positive, category_mapping):
