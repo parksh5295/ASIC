@@ -296,6 +296,8 @@ def main():
         confidence_values = np.arange(0.1, 0.96, 0.05)
     # elif file_type in ['NSL-KDD', 'NSL_KDD']:
     #     confidence_values = np.arange(0.5, 0.96, 0.05)
+    elif file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
+        confidence_values = np.arange(0.1, 0.14, 0.05)
     else:
         confidence_values = np.arange(0.1, 0.96, 0.05)
     best_recall = 0
