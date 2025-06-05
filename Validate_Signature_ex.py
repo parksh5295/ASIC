@@ -10,51 +10,27 @@ from datetime import datetime
 # Set the project root path based on the path of the current script (adjust as needed)
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# Importing project-specific modules
-# Explicitly add to sys.path to avoid path issues (may not be necessary depending on your environment)
-# Modules in the utils folder
-try:
-    from utils.time_transfer import time_scalar_transfer
-    from utils.save_data_io import save_to_json, load_from_json
-except ImportError:
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, 'utils'))
-    from time_transfer import time_scalar_transfer
-    from save_data_io import save_to_json, load_from_json
+# Add the project root to the front of sys.path (avoid duplicate additions if it already exists)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-# Modules in the Rebuild_Method folder
-try:
-    from Rebuild_Method.FalsePositive_Check import (
-        apply_signatures_to_dataset,
-        calculate_fp_scores,
-        evaluate_false_positives,
-        summarize_fp_results
-    )
-except ImportError:
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, 'Rebuild_Method'))
-    from FalsePositive_Check import (
-        apply_signatures_to_dataset,
-        calculate_fp_scores,
-        evaluate_false_positives,
-        summarize_fp_results
-    )
+# --- Import project-specific modules --- 
+# Now all local modules are imported relative to the project root.
+from utils.time_transfer import time_scalar_transfer
+from utils.save_data_io import save_to_json, load_from_json
 
-# Modules in the Validation folder
-try:
-    from Validation.generation_fp import generate_fake_fp_signatures
-    from Validation.Validation_util import map_data_using_category_mapping
-except ImportError:
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, 'Validation'))
-    from generation_fp import generate_fake_fp_signatures
-    from Validation_util import map_data_using_category_mapping
+from Rebuild_Method.FalsePositive_Check import (
+    apply_signatures_to_dataset,
+    calculate_fp_scores,
+    evaluate_false_positives,
+    summarize_fp_results
+)
+
+from Validation.generation_fp import generate_fake_fp_signatures
+from Validation.Validation_util import map_data_using_category_mapping
     
-# Modules in the Dataset_Choose_Rule folder
-try:
-    from Dataset_Choose_Rule.choose_amount_dataset import file_cut_GEN
-    from Dataset_Choose_Rule.Raw_Dataset_infos import Dataset_infos
-except ImportError:
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, 'Dataset_Choose_Rule'))
-    from choose_amount_dataset import file_cut_GEN
-    from Raw_Dataset_infos import Dataset_infos
+from Dataset_Choose_Rule.choose_amount_dataset import file_cut_GEN
+from Dataset_Choose_Rule.Raw_Dataset_infos import Dataset_infos
 
 
 # Logging settings
@@ -101,20 +77,12 @@ def load_category_mapping(file_type, config_name_prefix):
     map_file_name = f"{file_type}_{mapping_config_prefix}.json"
     map_file_path = os.path.join(BASE_MAPPING_PATH, file_type, map_file_name)
     
-    if not os.path.exists(map_file_path) and map_file_path.endswith(".json"):
-        alt_map_file_path = map_file_path.replace(".json", ".csv")
-        if os.path.exists(alt_map_file_path):
-            logger.warning(f"JSON mapping file not found, attempting to load CSV: {alt_map_file_path}")
-            logger.error(f"CSV loading for mapping not fully implemented here. Expected JSON: {map_file_path}")
-            return None
-        else:
-            logger.error(f"Mapping file not found (JSON or CSV): {map_file_path}")
-            return None
-    elif not os.path.exists(map_file_path):
-        logger.error(f"Mapping file not found: {map_file_path}")
+    logger.info(f"Attempting to load category mapping from: {map_file_path}")
+
+    if not os.path.exists(map_file_path):
+        logger.error(f"JSON Mapping file not found: {map_file_path}")
         return None
 
-    logger.info(f"Loading category mapping from: {map_file_path}")
     mapping_data = load_from_json(map_file_path)
     
     if mapping_data and 'interval' in mapping_data and isinstance(mapping_data['interval'], dict):
@@ -212,7 +180,7 @@ def main(args):
 
         if fake_alerts_df.empty:
             logger.info("No alerts generated from attack-free data with fake FP signatures.")
-        else:
+                else:
             logger.info(f"Generated {len(fake_alerts_df)} alerts from attack-free data using fake FP signatures.")
             fake_fp_scores_df = calculate_fp_scores(
                 fake_alerts_df, mapped_attack_free_df, file_type=args.file_type,

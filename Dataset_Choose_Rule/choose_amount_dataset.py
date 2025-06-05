@@ -75,3 +75,26 @@ def file_cut(file_type, file_path, cut_type='random'):
         df = _post_process_specific_datasets(df, file_type)
 
     return df   # return data
+
+
+def file_cut_GEN(file_type, file_path, cut_type='all', header=0):
+    """
+    Loads a dataset from a CSV file, tailored for 'all' cut_type and explicit header handling.
+    """
+    # Include _infer_dtypes_safely and _post_process_specific_datasets because they are used in the ‘all’ case in the file_cut function.
+    inferred_dtypes = infer_dtypes_safely(file_type, file_path)
+    df = None
+
+    if cut_type in ['all', 'All']:
+        # Pass the header argument when calling pd.read_csv.
+        df = pd.read_csv(file_path, dtype=inferred_dtypes, header=header)
+        df = _post_process_specific_datasets(df, file_type)
+    else:
+        # Validate_Signature_ex.py only uses the ‘all’ type, but leaves a message in case it is called with a different type.
+        print(f"Warning: file_cut_GEN was called with cut_type='{cut_type}'. " +
+              "This function is primarily designed for cut_type='all'. " +
+              "Returning None or incompletely processed DataFrame.")
+        # If needed, you can add logic for other cut_types here or raise an error.
+        # Currently, df will return None.
+
+    return df

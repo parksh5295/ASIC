@@ -146,7 +146,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                     normal_mapped_df[col] = normal_mapped_df[col].astype(pd.Int64Dtype()) # Allows <NA>
                 except Exception as e_astype:
                     print(f"Warning: Could not convert column {col} to Int64Dtype: {e_astype}. It might contain non-integer floats or unhandled NaNs.")
-
+        
         rules_df = association_module(
             normal_mapped_df, 
             association_method,
