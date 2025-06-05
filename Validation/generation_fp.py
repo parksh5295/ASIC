@@ -260,91 +260,57 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             logger.info("No rules met the filtering criteria from temp_rarm output, or no rules were generated initially.")
 
         # 7. Convert the top rules into the desired signature format.
-        fake_signatures_list, actual_num_generated = _convert_rules_to_signatures(
+        # This now returns 4 values to match the expected signature from the calling function.
+        final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final = _convert_rules_to_signatures(
             top_rules_list_of_dicts=top_rules,
-            item_mapping_df=item_mapping_df, # Pass the initial empty one, it will be populated if needed
+            item_mapping_df=item_mapping_df,
             file_type=file_type,
             is_fake_positive=True,
             category_mapping=category_mapping
         )
         
-        if fake_signatures_list:
-            temp_df_for_logging = pd.DataFrame(fake_signatures_list)
-            if not temp_df_for_logging.empty and 'rule_dict' not in temp_df_for_logging.columns:
-                logger.error("CRITICAL: DataFrame created for logging from _convert_rules_to_signatures output is missing 'rule_dict' column.")
-        # else: fake_signatures_list is empty, so an empty list is returned
-
+        actual_num_generated = len(final_signatures_list)
         if actual_num_generated > 0:
-            logger.info(f"Successfully prepared {actual_num_generated} fake FP signature dicts via _convert_rules_to_signatures using temp_rarm.")
+            logger.info(f"Successfully prepared {actual_num_generated} fake FP signature dicts via _convert_rules_to_signatures.")
         else:
-            logger.info("No fake FP signature dicts were prepared by _convert_rules_to_signatures (it returned 0 or an empty list) using temp_rarm.")
+            logger.info("No fake FP signature dicts were prepared by _convert_rules_to_signatures.")
 
-        # frequent_itemsets_df is not used here, but returns a placeholder to preserve return formatting
-        frequent_itemsets_df_placeholder = pd.DataFrame()
-        
-        # Validate_Signature_ex.py expects a list of signature dictionaries, so return fake_signatures_list
-        return fake_signatures_list, frequent_itemsets_df_placeholder
+        # This is the single, final return point for the successful execution path.
+        return final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final, actual_num_generated, actual_num_generated
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during fake signature generation: {e}", exc_info=True)
-        # Return empty structures in case of error
+        # Return empty structures in case of error, ensuring 6 values are returned.
         return [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 0, 0
     
-    # Final step: Convert the generated rules (list of dicts) into the required signature format
-    final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final = _convert_rules_to_signatures(
-        top_rules_list_of_dicts=top_rules,
-        item_mapping_df=item_mapping_df, # Pass the initial empty one, it will be populated if needed
-        file_type=file_type,
-        is_fake_positive=True,
-        category_mapping=category_mapping
-    )
-
-    actual_num_generated = len(final_signatures_list)
-    logger.info(f"Successfully prepared {actual_num_generated} fake FP signature dicts via _convert_rules_to_signatures using temp_rarm.")
-
-    # Ensure to return all 6 expected values
-    return final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final, actual_num_generated, actual_num_generated
 
 # ---- Helper function to convert RARM rules to signature format ----
 def _convert_rules_to_signatures(top_rules_list_of_dicts, item_mapping_df, file_type, is_fake_positive, category_mapping):
     """
     Converts a list of rule dictionaries (from RARM) into the desired signature format.
-    Each rule dictionary from RARM is expected to be the condition set itself.
-
-    Args:
-        top_rules_list_of_dicts (list): List of dictionaries, where each dict represents a rule's conditions
-                                        (e.g., [{'Feature1': 'Value1', 'Feature2': 'Value2'}, ...]).
-        item_mapping_df: Currently unused, placeholder for compatibility.
-        file_type: Currently unused, placeholder for compatibility.
-        is_fake_positive: Currently unused, placeholder for compatibility.
-        category_mapping: Currently unused, placeholder for compatibility.
-
-    Returns:
-        tuple: (list_of_signature_dicts, count)
-               list_of_signature_dicts: Each dict is like {'rule_dict': conditions_dict}
-               count: Number of signatures generated.
+    Returns 4 values for compatibility with the expected unpacking in generate_fake_fp_signatures.
     """
     signatures_output_list = []
     if not top_rules_list_of_dicts:
         logger.info("_convert_rules_to_signatures: Received empty top_rules_list_of_dicts.")
-        return [], 0
+        return [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     logger.info(f"_convert_rules_to_signatures: Converting {len(top_rules_list_of_dicts)} rules.")
 
-    for rule_conditions_dict in top_rules_list_of_dicts:
+    for idx, rule_conditions_dict in enumerate(top_rules_list_of_dicts):
         if not isinstance(rule_conditions_dict, dict) or not rule_conditions_dict:
             logger.warning(f"_convert_rules_to_signatures: Skipping invalid or empty rule condition dict: {rule_conditions_dict}")
             continue
         
-        # The rule_conditions_dict from RARM is directly used as the 'rule_dict'
         sig_dict = {
+            'id': f'fake_fp_sig_{idx+1}',
+            'name': f'Fake FP Signature {idx+1}',
             'rule_dict': rule_conditions_dict
-            # 'id' and 'name' will be added later in Validate_Signature_ex.py
-            # Other metrics like confidence/support could be added here if present in rule_conditions_dict
-            # and if needed by the signature structure.
         }
         signatures_output_list.append(sig_dict)
     
     logger.info(f"_convert_rules_to_signatures: Successfully converted {len(signatures_output_list)} rules to signatures.")
-    return signatures_output_list, len(signatures_output_list)
+    
+    # Return 4 values as expected by the caller function
+    return signatures_output_list, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 # ---- End of _convert_rules_to_signatures ----
