@@ -222,13 +222,31 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         # 2. Assign labels
         print("Assigning labels...")
-        if file_type in ['MiraiBotnet']:
+        if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
             full_data['label'], _ = anomal_judgment_nonlabel(file_type, full_data)
         elif file_type == 'netML':
-            full_data['label'] = full_data['Label'].apply(lambda x: 0 if x == 'BENIGN' else 1)
+            # print(f"[DEBUG netML MAR] Columns in 'data' DataFrame for netML before processing: {data.columns.tolist()}")
+            full_data['label'] = full_data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
         elif file_type == 'DARPA98':
-            full_data['label'] = full_data['Class'].apply(lambda x: 0 if x == '-' else 1)
+            full_data['label'] = full_data['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
+        elif file_type in ['CICIDS2017', 'CICIDS']:
+            print(f"INFO: Processing labels for {file_type}. Mapping BENIGN to 0, others to 1.")
+            # Ensure 'Label' column exists
+            if 'Label' in full_data.columns:
+                full_data['label'] = full_data['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+                logger.info(f"Applied BENIGN/Attack mapping for {file_type}.")
+            else:
+                logger.error(f"ERROR: 'Label' column not found in data for {file_type}. Cannot apply labeling.")
+                # Potentially raise an error or exit if label column is critical and missing
+                # For now, it will proceed and might fail later if 'label' is expected
+                data['label'] = 0 # Default to 0 or some other placeholder if Label is missing
+        elif file_type in ['CICModbus23', 'CICModbus']:
+            full_data['label'] = full_data['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
+        elif file_type in ['IoTID20', 'IoTID']:
+            full_data['label'] = full_data['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
         else:
+            # This is a fallback, ensure your file_type is covered above for specific handling
+            logger.warning(f"WARNING: Using generic anomal_judgment_label for {file_type}.")
             full_data['label'] = anomal_judgment_label(full_data)
 
         # 3. Filter for ANOMALOUS data.
