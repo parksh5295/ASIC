@@ -3,6 +3,10 @@ import numpy as np
 import re
 import multiprocessing # Added to prevent potential NameError if other functions use it
 import os
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 # Helper function to parse interval rule strings specifically for fake signature generation needs
 def _parse_interval_rule_string_for_fake_sigs(rule_str):
@@ -390,3 +394,86 @@ def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dic
     print(f"Data mapping complete. Mapped DataFrame shape: {final_mapped_df.shape}")
     # print(f"Mapped columns with NaN counts:\n{final_mapped_df.isnull().sum()}")
     return final_mapped_df
+
+def _parse_categorical_rule_string_for_fake_sigs(rule_str, data_series_dtype):
+    """
+    Parses a categorical rule string like 'key=value' into a (key, mapped_value) tuple.
+    Converts key to match data_series_dtype if numeric.
+    """
+    if not isinstance(rule_str, str) or '=' not in rule_str:
+        raise ValueError(f"Rule string '{rule_str}' is not in 'key=value' format.")
+    
+    key_str, mapped_val_str = rule_str.split('=', 1)
+    
+    try:
+        mapped_value = int(mapped_val_str)
+    except ValueError:
+        raise ValueError(f"Cannot parse mapped value '{mapped_val_str}' as int in rule '{rule_str}'.")
+
+    key = key_str # Default key is string
+    # Attempt to convert key_str to numeric type if data_series_dtype is numeric
+    if pd.api.types.is_float_dtype(data_series_dtype): # Includes float32, float64
+        try:
+            key = float(key_str)
+        except ValueError:
+            # If key_str cannot be float (e.g. "unknown"), and dtype is float, this rule might be problematic
+            # However, we allow it and let the mapping resolve it (likely won't match if data has actual floats)
+            logger.debug(f"Key '{key_str}' could not be parsed as float for a float-type series in rule '{rule_str}'. Using string key.")
+            pass # Keep key as key_str if conversion fails for a float series (e.g. 'unknown' in a float series)
+    elif pd.api.types.is_integer_dtype(data_series_dtype): # Includes int32, int64 etc.
+        try:
+            key = int(key_str)
+        except ValueError:
+            logger.debug(f"Key '{key_str}' could not be parsed as int for an int-type series in rule '{rule_str}'. Using string key.")
+            pass # Keep key as key_str if conversion fails
+
+    # If data_series_dtype is object (string), key remains key_str, which is intended.
+    return key, mapped_value
+
+def _apply_categorical_mapping_for_fake_sigs(data_series, rule_series, feature_name=None):
+    """
+    Applies categorical mapping rules to a data series.
+    Rules are expected to be 'key=value' strings.
+    """
+    if feature_name is None:
+        feature_name = data_series.name if data_series.name else "Unnamed_Series"
+
+    mapping_dict = {}
+    valid_rules_count = 0
+    for rule_str in rule_series.dropna().unique():
+        try:
+            key, mapped_value = _parse_categorical_rule_string_for_fake_sigs(rule_str, data_series.dtype)
+            mapping_dict[key] = mapped_value
+            valid_rules_count += 1
+        except ValueError as e:
+            logger.warning(f"Skipping unparsable categorical rule for {feature_name}: '{rule_str}'. Error: {e}")
+            pass
+    
+    if not mapping_dict:
+        logger.warning(f"No valid categorical rules parsed for {feature_name}. All values will be NaN.")
+        # Return a series of NaNs with the same index and Int64 dtype
+        return pd.Series([pd.NA] * len(data_series), index=data_series.index, dtype='Int64')
+
+    # Apply the mapping
+    # Pandas .map() handles missing keys by outputting NaN by default.
+    mapped_series = data_series.map(mapping_dict)
+
+    # Log if all values became NaN after mapping, which might indicate a type mismatch or other issue.
+    if mapped_series.isnull().all() and not data_series.isnull().all() and valid_rules_count > 0 :
+        # Take a small sample of unique data values and map keys for logging
+        sample_data_uniques = data_series.dropna().unique()
+        sample_data_uniques_str = [str(x) for x in sample_data_uniques[:3]]
+        if len(sample_data_uniques) > 3: sample_data_uniques_str.append("...")
+        
+        sample_map_keys = list(mapping_dict.keys())
+        sample_map_keys_str = [str(x) for x in sample_map_keys[:3]]
+        if len(sample_map_keys) > 3: sample_map_keys_str.append("...")
+
+        logger.warning(
+            f"All values became NaN after categorical mapping for {feature_name}. "
+            f"This might indicate a mismatch between data values and rule keys. "
+            f"Input unique values (sample, type: {data_series.dtype}): [{', '.join(sample_data_uniques_str)}]. "
+            f"Map keys (sample, types might vary): [{', '.join(sample_map_keys_str)}]."
+        )
+                        
+    return mapped_series.astype('Int64') # Ensure Int64 dtype for consistency and NA support

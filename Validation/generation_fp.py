@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import logging
+from collections import defaultdict
 
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
@@ -10,7 +11,11 @@ from utils.time_transfer import time_scalar_transfer, convert_cic_time_to_numeri
 # from Heterogeneous_Method.separate_group_mapping import map_intervals_to_groups 
 from Modules.Association_module import association_module
 # Import the helper from Validation_util.py
-from Validation.Validation_util import _apply_numeric_interval_mapping_for_fake_sigs
+from Validation.Validation_util import (
+    _apply_numeric_interval_mapping_for_fake_sigs, 
+    # _parse_interval_rule_string_for_fake_sigs, # Not used directly in generation_fp.py
+    _apply_categorical_mapping_for_fake_sigs # Importing Newly Added Functions
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,28 +103,50 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         # --- Interval Feature Mapping --- 
         interval_rules_df = category_mapping.get('interval', pd.DataFrame())
         if not interval_rules_df.empty:
-            logger.info(f"Applying interval mapping for columns: {interval_rules_df.columns.tolist()}")
+            logger.info(f"Applying feature mapping for columns: {interval_rules_df.columns.tolist()}")
             for col_name in interval_rules_df.columns:
                 if col_name in data_to_map_for_rules.columns:
-                    logger.info(f"  Mapping interval column: {col_name}")
                     data_series = data_to_map_for_rules[col_name]
-                    rule_series = interval_rules_df[col_name]
-                    
-                    # --- DEBUG LOGGING: Before _apply_numeric_interval_mapping_for_fake_sigs ---
+                    current_rule_series_for_col = interval_rules_df[col_name]
+
+                    logger.info(f"  Processing mapping for column: {col_name}")
+                    # --- DEBUG LOGGING: Before mapping ---
                     logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input data_series (sample): {data_series.dropna().unique()[:5]}, dtype: {data_series.dtype}, NaNs: {data_series.isnull().sum()}")
-                    logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input rule_series (unique sample): {rule_series.dropna().unique()[:5].tolist()}")
+                    unique_rules_sample = current_rule_series_for_col.dropna().unique()[:5]
+                    logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input rule_series (unique sample): {unique_rules_sample.tolist()}")
                     # --- END DEBUG LOGGING ---
+
+                    mapped_series = pd.Series([pd.NA] * len(data_series), index=data_series.index, dtype='Int64') # Initialize with NA
+                    actionable_rules = current_rule_series_for_col.dropna()
+
+                    if not actionable_rules.empty:
+                        first_rule = str(actionable_rules.iloc[0]) # Peek at the first valid rule to determine type
+                        
+                        # Heuristic for interval rule: contains '(', ',', and ')' or ']'
+                        is_interval_rule = ('(' in first_rule and ',' in first_rule and 
+                                            (')' in first_rule or ']' in first_rule))
+                        # Heuristic for categorical: contains '='
+                        is_categorical_rule_candidate = '=' in first_rule
+
+                        if is_interval_rule:
+                            logger.info(f"    Treating {col_name} as numeric interval mapping.")
+                            mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, current_rule_series_for_col, feature_name=col_name)
+                        elif is_categorical_rule_candidate: # Check if it's categorical and not an interval that happens to have '='.
+                            logger.info(f"    Treating {col_name} as categorical mapping.")
+                            mapped_series = _apply_categorical_mapping_for_fake_sigs(data_series, current_rule_series_for_col, feature_name=col_name)
+                        else:
+                            logger.warning(f"    Could not determine rule type for {col_name} from rule: '{first_rule}'. All values for this column will be NA.")
+                    else:
+                        logger.warning(f"    No valid rules found for {col_name}. All values for this column will be NA.")
                     
-                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=col_name)
                     all_mapped_series[col_name] = mapped_series
-                    
-                    # --- DEBUG LOGGING: After _apply_numeric_interval_mapping_for_fake_sigs ---
+                    # --- DEBUG LOGGING: After mapping ---
                     logger.info(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}, Mapped unique values (sample): {mapped_series.dropna().unique()[:5]}")
                     # --- END DEBUG LOGGING ---
                 else:
-                    logger.warning(f"  Warning: Interval rule column '{col_name}' not in data_to_map_for_rules.")
+                    logger.warning(f"  Warning: Rule column '{col_name}' not in data_to_map_for_rules.")
         else:
-            logger.warning("Warning: No interval rules found in category_mapping.")
+            logger.warning("Warning: No interval/categorical rules found in category_mapping ('interval' key).")
 
         # --- (Optional) Categorical and Binary Feature Mapping --- 
         # If fake signatures should also be generated based on categorical/binary features from category_mapping:
@@ -132,7 +159,11 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             print("Warning: No features were mapped. Cannot generate association rules.")
             return []
 
-        normal_mapped_df = pd.DataFrame(all_mapped_series, index=data_to_map_for_rules.index)
+        mapped_df = pd.DataFrame(all_mapped_series, index=data_to_map_for_rules.index)
+        # Fill remaining columns in data_to_map_for_rules that were not mapped
+        for col in data_to_map_for_rules.columns:
+            if col not in mapped_df.columns:
+                mapped_df[col] = data_to_map_for_rules[col]
 
         # Debugging after all mapping and before dropna
         # print(f"DEBUG_FAKE_SIGS: normal_mapped_df head AFTER all mapping (before dropna):\n{normal_mapped_df.head().to_string()}")
@@ -140,35 +171,35 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         # print(f"DEBUG_FAKE_SIGS: normal_mapped_df dtypes:\n{normal_mapped_df.dtypes}")
 
         # --- Handle NaN values from the mapped data ---
-        rows_before_dropna = normal_mapped_df.shape[0]
-        normal_mapped_df = normal_mapped_df.dropna()
-        rows_after_dropna = normal_mapped_df.shape[0]
+        rows_before_dropna = mapped_df.shape[0]
+        mapped_df = mapped_df.dropna()
+        rows_after_dropna = mapped_df.shape[0]
         if rows_before_dropna > rows_after_dropna:
             print(f"Dropped {rows_before_dropna - rows_after_dropna} rows containing NaN values from mapped ANOMALOUS data.")
         
-        if normal_mapped_df.empty:
+        if mapped_df.empty:
             print("Warning: No data left after dropping NaN rows from mapped ANOMALOUS data. Cannot generate fake signatures.")
             return []
-        print(f"Shape of final mapped ANOMALOUS data for association rules: {normal_mapped_df.shape}")
+        print(f"Shape of final mapped ANOMALOUS data for association rules: {mapped_df.shape}")
 
         # 5. Run association rule mining on the (now anomalous) mapped data.
         min_support = 0.2 # As per user request for fake signature generation
         _internal_fixed_confidence = 0.7
         print(f"Running {association_method} on ANOMALOUS data (min_support={min_support}, using fixed min_confidence={_internal_fixed_confidence})...")
         
-        # Ensure all columns in normal_mapped_df are of a type that association_module can handle (e.g., int, category)
+        # Ensure all columns in mapped_df are of a type that association_module can handle (e.g., int, category)
         # If _apply_numeric_interval_mapping_for_fake_sigs returns float for mapped categories, convert to int.
-        for col in normal_mapped_df.columns:
-            if pd.api.types.is_float_dtype(normal_mapped_df[col]):
+        for col in mapped_df.columns:
+            if pd.api.types.is_float_dtype(mapped_df[col]):
                 # Attempt to convert to integer; if it fails due to non-integer floats (e.g. NaN still present if dropna failed for some reason)
                 # this might need more robust handling or ensuring _apply_numeric... returns int-compatible types.
                 try:
-                    normal_mapped_df[col] = normal_mapped_df[col].astype(pd.Int64Dtype()) # Allows <NA>
+                    mapped_df[col] = mapped_df[col].astype(pd.Int64Dtype()) # Allows <NA>
                 except Exception as e_astype:
                     print(f"Warning: Could not convert column {col} to Int64Dtype: {e_astype}. It might contain non-integer floats or unhandled NaNs.")
         
         rules_df = association_module(
-            normal_mapped_df, 
+            mapped_df, 
             association_method,
             association_metric=association_metric,
             min_support=min_support,
