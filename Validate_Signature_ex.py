@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # We need to go one level up from PROJECT_ROOT to get to ~/asic/
 GRANDPARENT_DIR = os.path.dirname(PROJECT_ROOT) # This should give ~/asic/
 BASE_SIGNATURE_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature")
-BASE_MAPPING_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "mapped_info") # Also update for mapping path
+BASE_MAPPING_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature") # Corrected path
 BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "train_test_data") # Also update for data path
 
 
