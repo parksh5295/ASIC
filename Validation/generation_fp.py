@@ -265,7 +265,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             
             # Ensure the created DataFrame is not empty and has essential columns before proceeding
             # (e.g., 'antecedents', 'consequents' are common in association rule dicts)
-            if not rules_for_conversion_df.empty and \ 
+            if not rules_for_conversion_df.empty and \
                all(col in rules_for_conversion_df.columns for col in ['antecedents', 'consequents']): 
                 try:
                     logger.info(f"Converting {len(rules_for_conversion_df)} rules to signatures.")
