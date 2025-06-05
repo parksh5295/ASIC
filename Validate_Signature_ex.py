@@ -218,6 +218,23 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         # --- Add time scalar transfer step --- 
         print("Applying time scalar transfer...")
         full_data = time_scalar_transfer(full_data, file_type)
+
+        # === START DEBUG: Check full_data after time_scalar_transfer ===
+        print("DEBUG: full_data.head() after time_scalar_transfer:")
+        print(full_data.head().to_string())
+        if 'Date_scalar' in full_data.columns and 'StartTime_scalar' in full_data.columns:
+            print("DEBUG: full_data[['Date_scalar', 'StartTime_scalar']].isnull().sum() after time_scalar_transfer:")
+            print(full_data[['Date_scalar', 'StartTime_scalar']].isnull().sum().to_string())
+        elif 'Date_scalar' in full_data.columns:
+            print("DEBUG: full_data['Date_scalar'].isnull().sum() after time_scalar_transfer:")
+            print(full_data['Date_scalar'].isnull().sum().to_string())
+        elif 'StartTime_scalar' in full_data.columns:
+            print("DEBUG: full_data['StartTime_scalar'].isnull().sum() after time_scalar_transfer:")
+            print(full_data['StartTime_scalar'].isnull().sum().to_string())
+        else:
+            print("DEBUG: Neither Date_scalar nor StartTime_scalar found after time_scalar_transfer.")
+        # === END DEBUG ===
+
         # -------------------------------------
 
         # 2. Assign labels
