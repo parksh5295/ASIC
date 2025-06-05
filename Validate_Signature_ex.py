@@ -39,9 +39,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Set default path (may need to be adjusted for your environment)
-BASE_SIGNATURE_PATH = os.path.join(PROJECT_ROOT, "Dataset_Paral", "signature")
-BASE_MAPPING_PATH = os.path.join(PROJECT_ROOT, "Dataset_Paral", "mapped_info")
-BASE_DATA_PATH = os.path.join(PROJECT_ROOT, "Dataset_Paral", "train_test_data")
+# PROJECT_ROOT is ~/asic/ASIC_0605/ (example)
+# We need to go one level up from PROJECT_ROOT to get to ~/asic/
+GRANDPARENT_DIR = os.path.dirname(PROJECT_ROOT) # This should give ~/asic/
+BASE_SIGNATURE_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature")
+BASE_MAPPING_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "mapped_info") # Also update for mapping path
+BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "train_test_data") # Also update for data path
 
 
 def load_signatures(file_type, config_name_prefix):
