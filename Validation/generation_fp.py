@@ -57,7 +57,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         print("Applying time scalar transfer...")
         full_data = time_scalar_transfer(full_data, file_type)
-        
+
         # Apply CICModbus specific numeric time scalar conversion if applicable
         if file_type in ['CICModbus23', 'CICModbus']:
             logger.info(f"Applying CICModbus specific numeric time scalar conversion for {file_type} within fake signature generation...")
@@ -107,7 +107,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         # 4. Map the ANOMALOUS data using category_mapping and _apply_numeric_interval_mapping_for_fake_sigs
         data_to_map_for_rules = anomalous_data_df.drop(columns=['label'], errors='ignore')
-        
+
         all_mapped_series = {} # Store mapped series here
 
         # --- Interval Feature Mapping --- 
@@ -144,9 +144,9 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                         elif is_categorical_rule_candidate: # Check if it's categorical and not an interval that happens to have '='.
                             logger.info(f"    Treating {col_name} as categorical mapping.")
                             mapped_series = _apply_categorical_mapping_for_fake_sigs(data_series, current_rule_series_for_col, feature_name=col_name)
-                        else:
+            else:
                             logger.warning(f"    Could not determine rule type for {col_name} from rule: '{first_rule}'. All values for this column will be NA.")
-                    else:
+        else:
                         logger.warning(f"    No valid rules found for {col_name}. All values for this column will be NA.")
                     
                     all_mapped_series[col_name] = mapped_series

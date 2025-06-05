@@ -2,7 +2,7 @@ import pandas as pd
 import ast
 
 # 원본 CSV 파일 이름 (하드코딩)
-original_filename = "D:\\AutoSigGen_withData\\Dataset_Paral\\signature\NSL-KDD\\NSL-KDD_RARM_1_confidence_signature_train_ea15.csv"
+original_filename = r"D:\AutoSigGen_withData\Dataset_Paral\signature\NSL-KDD\NSL-KDD_RARM_1_confidence_signature_train_ea15.csv"
 output_filename = original_filename.replace(".csv", "_top40.csv")
 
 # CSV 파일 읽기

@@ -205,7 +205,7 @@ def load_category_mapping(file_type, file_number):
                 continue
             if is_interval_col(df_mapping[col]):
                 interval_cols.append(col)
-            else:
+        else:
                 categorical_cols.append(col)
 
         if interval_cols:
@@ -222,12 +222,12 @@ def load_category_mapping(file_type, file_number):
                 # Simple heuristic: if only 2 unique values, consider it binary
                 if len(mapping_dict) <= 2:
                     category_mapping['binary'][col] = mapping_dict
-                else:
+        else:
                     category_mapping['categorical'][col] = mapping_dict
 
         logger.info(f"Successfully loaded and processed category mapping from {map_file_path}")
         return category_mapping
-        
+
     except Exception as e:
         logger.error(f"Error processing mapping CSV file {map_file_path}: {e}", exc_info=True)
         return None
@@ -280,7 +280,7 @@ def load_dataset(file_type):
         dataset_info = Dataset_infos.get(file_type, {})
         header_row = 0 if dataset_info.get('has_header', True) else None
         df = file_cut_GEN(file_type, dataset_path, 'all', header=header_row)
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Error loading data using file_cut_GEN for {dataset_path}: {e}")
         try:
             # Fallback to simple pd.read_csv if file_cut_GEN fails
