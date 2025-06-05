@@ -152,17 +152,21 @@ def load_signatures(file_type, config_name_prefix):
 
 
 def load_category_mapping(file_type, file_number):
+    """
+    Loads and correctly parses the category mapping CSV file, distinguishing
+    between interval and categorical/binary features based on robust heuristics.
+    """
     map_file_name = f"{file_type}_{file_number}_mapped_info.csv"
     map_file_path = os.path.join(BASE_MAPPING_PATH, file_type, map_file_name)
     
-    logger.info(f"Attempting to load category mapping from CSV: {map_file_path}")
+    logger.info(f"Attempting to load and parse category mapping from CSV: {map_file_path}")
 
     if not os.path.exists(map_file_path):
         logger.error(f"CSV Mapping file not found: {map_file_path}")
         return None
 
     try:
-        df_mapping = pd.read_csv(map_file_path)
+        df_mapping = pd.read_csv(map_file_path, dtype=str).fillna('')
         if df_mapping.empty:
             logger.error(f"Mapping CSV file is empty: {map_file_path}")
             return None
@@ -172,27 +176,60 @@ def load_category_mapping(file_type, file_number):
             'categorical': {},
             'binary': {}
         }
-        
-        # Reconstruct interval, categorical, and binary mappings from the CSV
-        interval_cols = [col for col in df_mapping.columns if df_mapping[col].dropna().astype(str).str.contains('=', na=False).any()]
-        if interval_cols:
-            category_mapping['interval'] = df_mapping[interval_cols].copy()
 
-        categorical_cols = [col for col in df_mapping.columns if col not in interval_cols]
-        for col in categorical_cols:
-             unique_vals = df_mapping[col].dropna().unique()
-             mapping_dict = {val: i for i, val in enumerate(unique_vals)}
-             # Simple heuristic: if only 2 unique values, consider it binary
-             if len(unique_vals) <= 2:
-                 category_mapping['binary'][col] = mapping_dict
-             else:
-                 category_mapping['categorical'][col] = mapping_dict
+        def is_interval_col(series):
+            # A robust heuristic: a column is interval if its first valid entry
+            # looks like a mathematical interval, e.g., "(0.5, 1.5]=1"
+            first_valid_entry = series[series != ''].iloc[0]
+            return ('(' in first_valid_entry or '[' in first_valid_entry) and \
+                   (')' in first_valid_entry or ']' in first_valid_entry) and \
+                   ',' in first_valid_entry
+
+        def reconstruct_categorical_map(series):
+            # Reconstructs a mapping dict from "value=group" strings
+            mapping_dict = {}
+            for item in series[series != '']:
+                parts = str(item).split('=', 1)
+                if len(parts) == 2:
+                    value, group_str = parts
+                    try:
+                        mapping_dict[value.strip()] = int(group_str.strip())
+                    except ValueError:
+                        logger.warning(f"Could not parse group ID as integer in '{item}'. Skipping.")
+            return mapping_dict
+
+        interval_cols = []
+        categorical_cols = []
+        for col in df_mapping.columns:
+            if df_mapping[col][df_mapping[col] != ''].empty:
+                continue
+            if is_interval_col(df_mapping[col]):
+                interval_cols.append(col)
+            else:
+                categorical_cols.append(col)
+
+        if interval_cols:
+            logger.info(f"Identified Interval columns: {interval_cols}")
+            category_mapping['interval'] = df_mapping[interval_cols].copy()
+        
+        if categorical_cols:
+            logger.info(f"Identified Categorical/Binary columns: {categorical_cols}")
+            for col in categorical_cols:
+                mapping_dict = reconstruct_categorical_map(df_mapping[col])
+                if not mapping_dict:
+                    logger.warning(f"Could not reconstruct map for categorical column '{col}'.")
+                    continue
+                # Simple heuristic: if only 2 unique values, consider it binary
+                if len(mapping_dict) <= 2:
+                    category_mapping['binary'][col] = mapping_dict
+                else:
+                    category_mapping['categorical'][col] = mapping_dict
 
         logger.info(f"Successfully loaded and processed category mapping from {map_file_path}")
         return category_mapping
         
     except Exception as e:
-        logger.error(f"Error processing mapping CSV file {map_file_path}: {e}")
+        logger.error(f"Error processing mapping CSV file {map_file_path}: {e}", exc_info=True)
         return None
 
 
