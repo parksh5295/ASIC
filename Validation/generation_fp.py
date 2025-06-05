@@ -78,7 +78,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         # if 'Date_scalar' in full_data.columns:
         #     print(f"DEBUG: Date_scalar dtype: {full_data['Date_scalar'].dtype}, NaNs: {full_data['Date_scalar'].isnull().sum()}, sample: {full_data['Date_scalar'].head().to_list() if not full_data.empty else 'empty'}")
 
-        # 2. Assign labels (same as before)
+        # 2. Assign labels
         print("Assigning labels...")
         if file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
             full_data['label'], _ = anomal_judgment_nonlabel(file_type, full_data)
@@ -105,12 +105,10 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             return fake_signatures_df, item_mapping_df, frequent_itemsets_df, final_rules_df_to_return, signature_count, actual_num_generated
         print(f"Filtered for ANOMALOUS data. Rows: {anomalous_data_df.shape[0]}")
 
-        # 4. Map the ANOMALOUS data using category_mapping and _apply_numeric_interval_mapping_for_fake_sigs
+        # 4. Map the ANOMALOUS data
         data_to_map_for_rules = anomalous_data_df.drop(columns=['label'], errors='ignore')
+        all_mapped_series = {}
 
-        all_mapped_series = {} # Store mapped series here
-
-        # --- Interval Feature Mapping --- 
         interval_rules_df = category_mapping.get('interval', pd.DataFrame())
         if not interval_rules_df.empty:
             logger.info(f"Applying feature mapping for columns: {interval_rules_df.columns.tolist()}")
@@ -118,7 +116,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                 if col_name in data_to_map_for_rules.columns:
                     data_series = data_to_map_for_rules[col_name]
                     current_rule_series_for_col = interval_rules_df[col_name]
-
+                    
                     logger.info(f"  Processing mapping for column: {col_name}")
                     # --- DEBUG LOGGING: Before mapping ---
                     logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input data_series (sample): {data_series.dropna().unique()[:5]}, dtype: {data_series.dtype}, NaNs: {data_series.isnull().sum()}")
@@ -130,12 +128,8 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                     actionable_rules = current_rule_series_for_col.dropna()
 
                     if not actionable_rules.empty:
-                        first_rule = str(actionable_rules.iloc[0]) # Peek at the first valid rule to determine type
-                        
-                        # Heuristic for interval rule: contains '(', ',', and ')' or ']'
-                        is_interval_rule = ('(' in first_rule and ',' in first_rule and 
-                                            (')' in first_rule or ']' in first_rule))
-                        # Heuristic for categorical: contains '='
+                        first_rule = str(actionable_rules.iloc[0])
+                        is_interval_rule = '(' in first_rule and ',' in first_rule and (')' in first_rule or ']' in first_rule)
                         is_categorical_rule_candidate = '=' in first_rule
 
                         if is_interval_rule:
@@ -144,27 +138,23 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                         elif is_categorical_rule_candidate: # Check if it's categorical and not an interval that happens to have '='.
                             logger.info(f"    Treating {col_name} as categorical mapping.")
                             mapped_series = _apply_categorical_mapping_for_fake_sigs(data_series, current_rule_series_for_col, feature_name=col_name)
-            else:
+                        else:
                             logger.warning(f"    Could not determine rule type for {col_name} from rule: '{first_rule}'. All values for this column will be NA.")
-        else:
+                    else:
                         logger.warning(f"    No valid rules found for {col_name}. All values for this column will be NA.")
                     
                     all_mapped_series[col_name] = mapped_series
-                    # --- DEBUG LOGGING: After mapping ---
                     logger.info(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}, Mapped unique values (sample): {mapped_series.dropna().unique()[:5]}")
-                    # --- END DEBUG LOGGING ---
                 else:
                     logger.warning(f"  Warning: Rule column '{col_name}' not in data_to_map_for_rules.")
         else:
             logger.warning("Warning: No interval/categorical rules found in category_mapping ('interval' key).")
 
-        # --- (Optional) Categorical and Binary Feature Mapping ---
         categorical_rules = category_mapping.get('categorical')
         if isinstance(categorical_rules, dict) and categorical_rules:
             logger.info("Applying categorical mapping for fake signature generation...")
             for col_name, mapping_dict in categorical_rules.items():
                 if col_name in data_to_map_for_rules.columns and isinstance(mapping_dict, dict):
-                    # Robust mapping: convert both data and mapping keys to string
                     type_unified_mapping_dict = {str(k): v for k, v in mapping_dict.items()}
                     mapped_series = data_to_map_for_rules[col_name].astype(str).map(type_unified_mapping_dict)
                     all_mapped_series[col_name] = mapped_series
@@ -181,17 +171,10 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             return fake_signatures_df, item_mapping_df, frequent_itemsets_df, final_rules_df_to_return, signature_count, actual_num_generated
 
         mapped_df = pd.DataFrame(all_mapped_series, index=data_to_map_for_rules.index)
-        # Fill remaining columns in data_to_map_for_rules that were not mapped
         for col in data_to_map_for_rules.columns:
             if col not in mapped_df.columns:
                 mapped_df[col] = data_to_map_for_rules[col]
 
-        # Debugging after all mapping and before dropna
-        # print(f"DEBUG_FAKE_SIGS: normal_mapped_df head AFTER all mapping (before dropna):\n{normal_mapped_df.head().to_string()}")
-        # print(f"DEBUG_FAKE_SIGS: normal_mapped_df NaNs AFTER all mapping (before dropna):\n{normal_mapped_df.isnull().sum().to_string()}")
-        # print(f"DEBUG_FAKE_SIGS: normal_mapped_df dtypes:\n{normal_mapped_df.dtypes}")
-
-        # --- Handle NaN values from the mapped data ---
         rows_before_dropna = mapped_df.shape[0]
         mapped_df = mapped_df.dropna()
         rows_after_dropna = mapped_df.shape[0]
@@ -203,39 +186,27 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             return fake_signatures_df, item_mapping_df, frequent_itemsets_df, final_rules_df_to_return, signature_count, actual_num_generated
         print(f"Shape of final mapped ANOMALOUS data for association rules: {mapped_df.shape}")
 
-        # 5. Run association rule mining on the (now anomalous) mapped data.
-        # The _internal_fixed_confidence was originally a value passed to the RARM module, but temp_rarm_for_fake_fp uses its own fixed_confidence.
-        # min_support is passed to temp_rarm_for_fake_fp as min_support_threshold.
-        # association_method is not directly used when calling temp_rarm_for_fake_fp, but can be kept for logging, etc.
         logger.info(f"Using temporary RARM logic for fake FP signature generation from Validation.generation_asso.py")
         logger.info(f"Targeting {num_fake_signatures} fake FPs with min_support={min_support} for itemset generation.")
-
-        # temp_rarm_for_fake_fp compares values directly without string conversion
 
         rules_df = temp_rarm_for_fake_fp(
             df=mapped_df, 
             min_support_threshold=min_support, 
-            num_rules_to_generate=num_fake_signatures, # Try to generate the target number of rules
-            itemset_size=2,  # Example: Generate 2-itemset rules (adjustable)
-            fixed_confidence=0.95 # Give high fixed confidence to generated rules (for min_confidence filter)
+            num_rules_to_generate=num_fake_signatures,
+            itemset_size=2,
+            fixed_confidence=0.95
         )
-        # temp_rarm_for_fake_fp returns a list of dictionaries in the form of {'col':'val', 'confidence': X, 'support': Y}
-
-        # 6. Filter rules based on the association_metric (e.g., confidence)
-        # rules_df is now a list of dictionaries containing 'confidence' and 'support'
-        filtered_rules = [] 
         
+        filtered_rules = [] 
         if rules_df is not None and isinstance(rules_df, list):
-            if rules_df: # If the list is not empty
+            if rules_df:
                 logger.info(f"Filtering {len(rules_df)} rules (list of dicts from temp_rarm) by '{association_metric}' >= {min_confidence}")
                 for rule_dict in rules_df:
                     if isinstance(rule_dict, dict):
-                        # temp_rarm_for_fake_fp returns the association_metric (usually 'confidence')
                         if association_metric in rule_dict and rule_dict[association_metric] >= min_confidence:
                             filtered_rules.append(rule_dict)
                         elif association_metric not in rule_dict:
                             logger.warning(f"Skipping rule dict from temp_rarm as it is missing '{association_metric}' key: {rule_dict}")
-                        # else: rule_dict[association_metric] < min_confidence (filtered)
                     else:
                         logger.warning(f"Skipping item in rules list from temp_rarm as it is not a dictionary: {rule_dict}")
             else:
@@ -243,14 +214,11 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         else:
             logger.warning(f"Temporary RARM returned an unexpected type: {type(rules_df)} or None. Expected a list.")
 
-        # Sort rules by the association_metric (e.g., confidence) and select top N
         top_rules = [] 
         if filtered_rules:
             try:
-                # temp_rarm_for_fake_fp uses fixed_confidence, so all rules' confidence may be the same.
-                # Currently, sorting is done by association_metric (confidence).
                 filtered_rules.sort(key=lambda x: x.get(association_metric, float('-inf')), reverse=True)
-                top_rules = filtered_rules[:num_fake_signatures] # Select the top num_fake_signatures rules
+                top_rules = filtered_rules[:num_fake_signatures]
                 logger.info(f"Selected top {len(top_rules)} rules after filtering and sorting.")
             except KeyError as e: 
                 logger.error(f"Error sorting rules from temp_rarm: A rule dictionary was missing the key '{association_metric}'. Error: {e}")
@@ -259,8 +227,6 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         else:
             logger.info("No rules met the filtering criteria from temp_rarm output, or no rules were generated initially.")
 
-        # 7. Convert the top rules into the desired signature format.
-        # This now returns 4 values to match the expected signature from the calling function.
         final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final = _convert_rules_to_signatures(
             top_rules_list_of_dicts=top_rules,
             item_mapping_df=item_mapping_df,
@@ -275,14 +241,11 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         else:
             logger.info("No fake FP signature dicts were prepared by _convert_rules_to_signatures.")
 
-        # This is the single, final return point for the successful execution path.
         return final_signatures_list, item_mapping_df_final, frequent_itemsets_df_final, final_rules_df_final, actual_num_generated, actual_num_generated
 
     except Exception as e:
         logger.error(f"An unexpected error occurred during fake signature generation: {e}", exc_info=True)
-        # Return empty structures in case of error, ensuring 6 values are returned.
         return [], pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), 0, 0
-    
 
 # ---- Helper function to convert RARM rules to signature format ----
 def _convert_rules_to_signatures(top_rules_list_of_dicts, item_mapping_df, file_type, is_fake_positive, category_mapping):
