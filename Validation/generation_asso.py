@@ -78,33 +78,35 @@ def temp_rarm_for_fake_fp(df, min_support_threshold, num_rules_to_generate=5, it
         if len(generated_rules) >= num_rules_to_generate:
             break
 
-        current_itemset_conditions = {}
+        # Step 1: Create an itemset with original data types (e.g., integer) for support calculation.
+        itemset_for_calc = {}
         valid_condition_set = True
         for col_name in col_combo:
             mode_result = df[col_name].mode() 
             if not mode_result.empty:
-                # Take the first mode if multiple exist.
-                # Convert the value to a string to ensure type consistency during rule application.
                 value = mode_result.iloc[0]
-                current_itemset_conditions[col_name] = str(value)
+                itemset_for_calc[col_name] = value # Keep original type for calculation
             else:
                 valid_condition_set = False
                 break
         
-        if not valid_condition_set or not current_itemset_conditions:
+        if not valid_condition_set or not itemset_for_calc:
             continue
 
-        # Calculate actual support for this specific itemset
-        # calculate_actual_support can handle string values in its query.
-        actual_support = calculate_actual_support(df, current_itemset_conditions)
+        # Step 2: Calculate support using the itemset with original types.
+        # This will now correctly compare int with int inside the dataframe.
+        actual_support = calculate_actual_support(df, itemset_for_calc)
 
         if actual_support >= min_support_threshold:
-            rule_dict = dict(current_itemset_conditions)
-            rule_dict['confidence'] = fixed_confidence
-            rule_dict['support'] = actual_support
+            # Step 3: If support is sufficient, create the final rule dictionary
+            # for the application stage by converting its values to strings.
+            final_rule_dict = {str(k): str(v) for k, v in itemset_for_calc.items()}
             
-            generated_rules.append(rule_dict)
-            logger.info(f"temp_rarm_for_fake_fp: Added rule {rule_dict} with support {actual_support:.4f}")
+            final_rule_dict['confidence'] = fixed_confidence
+            final_rule_dict['support'] = actual_support
+            
+            generated_rules.append(final_rule_dict)
+            logger.info(f"temp_rarm_for_fake_fp: Added rule {final_rule_dict} with support {actual_support:.4f}")
 
     if not generated_rules:
         logger.warning(f"temp_rarm_for_fake_fp: No rules met the support threshold of {min_support_threshold:.3f} with itemset_size={itemset_size}.")

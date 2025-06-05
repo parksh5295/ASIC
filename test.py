@@ -27,5 +27,5 @@ def read_recall_column(csv_file_path):
 
 if __name__ == "__main__":
     # 읽어올 CSV 파일 경로 (사용자로부터 받은 경로)
-    csv_path = "D:\\AutoSigGen_withData\\Dataset_Paral\\signature\\NSL-KDD\\NSL-KDD_RARM_1_confidence_signature_train_ea15.csv"
+    csv_path = "D:\\AutoSigGen_withData\\Dataset_Paral\\signature\\MiraiBotnet\\MiraiBotnet_RARM_1_confidence_signature_train_ea15.csv"
     read_recall_column(csv_path)
