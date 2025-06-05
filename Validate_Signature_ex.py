@@ -265,6 +265,13 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         normal_mapped_df, _ = map_intervals_to_groups(normal_data_to_map, category_mapping, data_list, regul='N')
         print(f"Shape of mapped ANOMALOUS data: {normal_mapped_df.shape}")
 
+        # === START DEBUG: Check normal_mapped_df before dropna ===
+        print("DEBUG: normal_mapped_df.head() before dropna:")
+        print(normal_mapped_df.head().to_string())
+        print("DEBUG: normal_mapped_df.isnull().sum() before dropna:")
+        print(normal_mapped_df.isnull().sum().to_string())
+        # === END DEBUG ===
+
         # --- Handle NaN values from the (now anomalous) mapped data --- 
         rows_before_dropna = normal_mapped_df.shape[0]
         normal_mapped_df = normal_mapped_df.dropna()
