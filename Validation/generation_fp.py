@@ -299,3 +299,47 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
     print("--- Fake FP Signature Generation (from ANOMALOUS data with 0.7 confidence) Complete ---")
     return fake_signatures_df, item_mapping_df, frequent_itemsets_df, final_rules_df_to_return, signature_count, actual_num_generated
+
+# ---- Helper function to convert RARM rules to signature format ----
+def _convert_rules_to_signatures(top_rules_list_of_dicts, item_mapping_df, file_type, is_fake_positive, category_mapping):
+    """
+    Converts a list of rule dictionaries (from RARM) into the desired signature format.
+    Each rule dictionary from RARM is expected to be the condition set itself.
+
+    Args:
+        top_rules_list_of_dicts (list): List of dictionaries, where each dict represents a rule's conditions
+                                        (e.g., [{'Feature1': 'Value1', 'Feature2': 'Value2'}, ...]).
+        item_mapping_df: Currently unused, placeholder for compatibility.
+        file_type: Currently unused, placeholder for compatibility.
+        is_fake_positive: Currently unused, placeholder for compatibility.
+        category_mapping: Currently unused, placeholder for compatibility.
+
+    Returns:
+        tuple: (list_of_signature_dicts, count)
+               list_of_signature_dicts: Each dict is like {'rule_dict': conditions_dict}
+               count: Number of signatures generated.
+    """
+    signatures_output_list = []
+    if not top_rules_list_of_dicts:
+        logger.info("_convert_rules_to_signatures: Received empty top_rules_list_of_dicts.")
+        return [], 0
+
+    logger.info(f"_convert_rules_to_signatures: Converting {len(top_rules_list_of_dicts)} rules.")
+
+    for rule_conditions_dict in top_rules_list_of_dicts:
+        if not isinstance(rule_conditions_dict, dict) or not rule_conditions_dict:
+            logger.warning(f"_convert_rules_to_signatures: Skipping invalid or empty rule condition dict: {rule_conditions_dict}")
+            continue
+        
+        # The rule_conditions_dict from RARM is directly used as the 'rule_dict'
+        sig_dict = {
+            'rule_dict': rule_conditions_dict
+            # 'id' and 'name' will be added later in Validate_Signature_ex.py
+            # Other metrics like confidence/support could be added here if present in rule_conditions_dict
+            # and if needed by the signature structure.
+        }
+        signatures_output_list.append(sig_dict)
+    
+    logger.info(f"_convert_rules_to_signatures: Successfully converted {len(signatures_output_list)} rules to signatures.")
+    return signatures_output_list, len(signatures_output_list)
+# ---- End of _convert_rules_to_signatures ----
