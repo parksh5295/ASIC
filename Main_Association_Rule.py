@@ -30,18 +30,18 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 LEVEL_LIMITS_BY_FILE_TYPE = {
-    'MiraiBotnet': 7,
-    'NSL-KDD': 7,
-    'NSL_KDD': 7,
+    'MiraiBotnet': 6,
+    'NSL-KDD': 6,
+    'NSL_KDD': 6,
     'DARPA98': None,
     'DARPA': None,
-    'CICIDS2017': 7,
-    'CICIDS': 7,
+    'CICIDS2017': 6,
+    'CICIDS': 6,
     'CICModbus23': None,
     'CICModbus': None,
     'IoTID20': None,
     'IoTID': None,
-    'netML': 7,
+    'netML': 6,
     'default': None
 }
 

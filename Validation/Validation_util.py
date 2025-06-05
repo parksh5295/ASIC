@@ -1,32 +1,40 @@
-
+import pandas as pd
+import numpy as np
+import re
+import multiprocessing # Added to prevent potential NameError if other functions use it
 
 # Helper function to parse interval rule strings specifically for fake signature generation needs
-# This avoids modifying the global separate_group_mapping.py
 def _parse_interval_rule_string_for_fake_sigs(rule_str):
     """
     Parses an interval rule string like "(L, U]=G" or "[L, U)=G".
     Returns (lower_bound, upper_bound, lower_inclusive, upper_inclusive, group_index).
-    Handles '-inf' as lower bound.
+    Handles '-inf' as lower bound for numeric types.
+    Assumes rule_str is in the format like "(val1,val2]=group_id"
     """
-    rule_str = str(rule_str).strip() # Ensure it's a string
-    match = re.match(r'([(\[])\s*(-inf|[-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*([)\]])\s*=\s*(\d+)', rule_str)
+    rule_str = str(rule_str).strip()
+    # Original simpler regex for numeric intervals: "([(\[])\s*(-inf|[-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*([)\]])\s*=\s*(\d+)"
+    # Regex to match formats like "(0.999, 9213.0]=0"
+    match = re.match(r'([(\[])\s*(-inf|[-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*,\s*([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*([)\]])\s*=\s*(\d+)', rule_str)
     if not match:
-        # print(f"DEBUG_FAKE_SIG_MAP: Cannot parse interval rule string: {rule_str}")
-        raise ValueError(f"Cannot parse interval rule string for fake sigs: {rule_str}")
+        # Fallback for rules that might not have '=' for group, if separate_group_mapping produces them differently.
+        # However, category_mapping from debug log shows "(...]=group" format.
+        raise ValueError(f"Cannot parse interval rule string for fake sigs: {rule_str}. Expected format like \"(val1,val2]=group_id\"")
 
     lower_bracket, lower_val_str, upper_val_str, upper_bracket, group_num_str = match.groups()
+    
     lower_bound = -np.inf if lower_val_str == '-inf' else float(lower_val_str)
     upper_bound = float(upper_val_str)
     lower_inclusive = (lower_bracket == '[')
     upper_inclusive = (upper_bracket == ']')
     group_index = int(group_num_str)
+        
     return lower_bound, upper_bound, lower_inclusive, upper_inclusive, group_index
 
-# Helper function to apply parsed interval rules to a numeric data series
-def _apply_numeric_interval_mapping_for_fake_sigs(numeric_data_series, rule_series):
+# Helper function to apply parsed interval rules to a data series
+def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series):
     """
-    Applies interval mapping rules to a numeric pandas Series.
-    numeric_data_series: pd.Series of numeric data to be mapped.
+    Applies interval mapping rules to a pandas Series.
+    data_series: pd.Series of data to be mapped (expected to be numeric or convertible to numeric).
     rule_series: pd.Series of interval rule strings (e.g., "(0,10]=0").
     Returns a pd.Series with mapped group indices.
     """
@@ -34,21 +42,22 @@ def _apply_numeric_interval_mapping_for_fake_sigs(numeric_data_series, rule_seri
     for rule_str in rule_series.dropna():
         try:
             parsed_rules.append(_parse_interval_rule_string_for_fake_sigs(rule_str))
-        except ValueError:
-            # print(f"DEBUG_FAKE_SIG_MAP: Skipping unparsable rule for data mapping: {rule_str}")
-            pass # Skip rules that can't be parsed by our helper
+        except ValueError as e:
+            # print(f"DEBUG_FAKE_SIG_MAP: Skipping unparsable rule: {rule_str}. Error: {e}")
+            pass 
     
     if not parsed_rules:
-        # print(f"DEBUG_FAKE_SIG_MAP: No valid rules parsed for column {numeric_data_series.name}. Returning NaNs.")
-        return pd.Series(np.nan, index=numeric_data_series.index, dtype=np.float64)
+        return pd.Series(np.nan, index=data_series.index, dtype=np.float64)
 
-    # Sort rules by lower bound, then upper bound (optional, but good practice)
-    parsed_rules.sort(key=lambda x: (x[0], x[1]))
+    try:
+        parsed_rules.sort(key=lambda x: (x[0], x[1]))
+    except TypeError:
+        print(f"Warning: Could not sort parsed_rules. Proceeding without sorting.")
 
-    mapped_values = pd.Series(np.nan, index=numeric_data_series.index, dtype=np.float64)
+    mapped_values = pd.Series(np.nan, index=data_series.index, dtype=np.float64)
     
-    # Ensure numeric_data_series is indeed numeric, coercing errors
-    data_to_map = pd.to_numeric(numeric_data_series, errors='coerce')
+    # Ensure data_series is numeric for comparison
+    data_to_map = pd.to_numeric(data_series, errors='coerce')
     valid_data_mask = data_to_map.notna()
 
     for lower, upper, l_incl, u_incl, group_idx in parsed_rules:

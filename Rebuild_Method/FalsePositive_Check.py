@@ -6,6 +6,29 @@ from datetime import datetime, timedelta
 import random
 import multiprocessing # Added for parallel processing
 
+# Helper function for parallel NRA calculation (MOVED TO TOP LEVEL)
+def _calculate_nra_for_alert_task(args_nra):
+    i_nra, t_i_nra, src_ip_i_nra, dst_ip_i_nra, all_timestamps_nra, all_src_ips_nra, all_dst_ips_nra, t0_nra_val, n0_nra_val_local = args_nra
+    
+    t_start_nra = t_i_nra - pd.Timedelta(seconds=t0_nra_val)
+    t_end_nra = t_i_nra + pd.Timedelta(seconds=t0_nra_val)
+
+    start_idx_nra = all_timestamps_nra.searchsorted(t_start_nra, side='left')
+    end_idx_nra = all_timestamps_nra.searchsorted(t_end_nra, side='right')
+
+    if start_idx_nra >= end_idx_nra:
+        nra_val = 0
+    else:
+        window_src_ips_nra = all_src_ips_nra.iloc[start_idx_nra:end_idx_nra]
+        window_dst_ips_nra = all_dst_ips_nra.iloc[start_idx_nra:end_idx_nra]
+        
+        src_match_mask_nra = np.logical_or(window_src_ips_nra == src_ip_i_nra, window_src_ips_nra == dst_ip_i_nra)
+        dst_match_mask_nra = np.logical_or(window_dst_ips_nra == src_ip_i_nra, window_dst_ips_nra == dst_ip_i_nra)
+        combined_ip_mask_nra = np.logical_or(src_match_mask_nra, dst_match_mask_nra)
+        nra_val = np.sum(combined_ip_mask_nra)
+        
+    return min(nra_val, n0_nra_val_local) / n0_nra_val_local
+
 # Helper function for applying a single signature in parallel
 def _apply_single_signature_task(args):
     df_subset, sig_info, df_columns = args # df_subset contains only necessary columns
@@ -213,29 +236,6 @@ def calculate_fp_scores(alerts_df: pd.DataFrame, attack_free_df: pd.DataFrame,
     df.reset_index(drop=True, inplace=True)
     n = len(df)
     print("Sorting finished.")
-
-    # Helper for parallel NRA calculation
-    def _calculate_nra_for_alert_task(args_nra):
-        i_nra, t_i_nra, src_ip_i_nra, dst_ip_i_nra, all_timestamps_nra, all_src_ips_nra, all_dst_ips_nra, t0_nra_val, n0_nra_val_local = args_nra
-        
-        t_start_nra = t_i_nra - pd.Timedelta(seconds=t0_nra_val)
-        t_end_nra = t_i_nra + pd.Timedelta(seconds=t0_nra_val)
-
-        start_idx_nra = all_timestamps_nra.searchsorted(t_start_nra, side='left')
-        end_idx_nra = all_timestamps_nra.searchsorted(t_end_nra, side='right')
-
-        if start_idx_nra >= end_idx_nra:
-            nra_val = 0
-        else:
-            window_src_ips_nra = all_src_ips_nra.iloc[start_idx_nra:end_idx_nra]
-            window_dst_ips_nra = all_dst_ips_nra.iloc[start_idx_nra:end_idx_nra]
-            
-            src_match_mask_nra = np.logical_or(window_src_ips_nra == src_ip_i_nra, window_src_ips_nra == dst_ip_i_nra)
-            dst_match_mask_nra = np.logical_or(window_dst_ips_nra == src_ip_i_nra, window_dst_ips_nra == dst_ip_i_nra)
-            combined_ip_mask_nra = np.logical_or(src_match_mask_nra, dst_match_mask_nra)
-            nra_val = np.sum(combined_ip_mask_nra)
-            
-        return min(nra_val, n0_nra_val_local) / n0_nra_val_local
 
     # --- 1. NRA Calculation (Parallelized) ---
     print("Calculating NRA scores (using itertuples with searchsorted)...")
