@@ -48,6 +48,12 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
             logger.info(f"Applying CICModbus specific numeric time scalar conversion for {file_type} within fake signature generation...")
             if full_data is not None and not full_data.empty: # Check if full_data is a DataFrame and not None
                 full_data = convert_cic_time_to_numeric_scalars(full_data)
+                # --- DEBUG LOGGING: After convert_cic_time_to_numeric_scalars ---
+                if 'Date_scalar' in full_data.columns:
+                    logger.info(f"DEBUG_FAKE_SIGS: Date_scalar after conversion - dtype: {full_data['Date_scalar'].dtype}, NaNs: {full_data['Date_scalar'].isnull().sum()}, sample: {full_data['Date_scalar'].dropna().unique()[:5]}")
+                if 'StartTime_scalar' in full_data.columns:
+                    logger.info(f"DEBUG_FAKE_SIGS: StartTime_scalar after conversion - dtype: {full_data['StartTime_scalar'].dtype}, NaNs: {full_data['StartTime_scalar'].isnull().sum()}, sample: {full_data['StartTime_scalar'].dropna().unique()[:5]}")
+            # --- END DEBUG LOGGING ---
 
         # Date_scalar is now numeric (Unix timestamp)
 
@@ -92,21 +98,25 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         # --- Interval Feature Mapping --- 
         interval_rules_df = category_mapping.get('interval', pd.DataFrame())
         if not interval_rules_df.empty:
-            print(f"Applying interval mapping for columns: {interval_rules_df.columns.tolist()}")
+            logger.info(f"Applying interval mapping for columns: {interval_rules_df.columns.tolist()}")
             for col_name in interval_rules_df.columns:
                 if col_name in data_to_map_for_rules.columns:
-                    print(f"  Mapping interval column: {col_name}")
+                    logger.info(f"  Mapping interval column: {col_name}")
                     data_series = data_to_map_for_rules[col_name]
                     rule_series = interval_rules_df[col_name]
+                    # --- DEBUG LOGGING: Before _apply_numeric_interval_mapping_for_fake_sigs ---
+                    if col_name in ['Date_scalar', 'StartTime_scalar']:
+                        logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input data_series (sample): {data_series.dropna().unique()[:5]}, dtype: {data_series.dtype}, NaNs: {data_series.isnull().sum()}")
+                        logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input rule_series (unique): {rule_series.dropna().unique().tolist()}")
+                    # --- END DEBUG LOGGING ---
                     mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=col_name)
                     all_mapped_series[col_name] = mapped_series
-                    # Debugging for individual mapped series (can be enabled if needed)
-                    # print(f"    DEBUG_FAKE_SIGS: Mapped {col_name} head:\n{mapped_series.head().to_string()}")
-                    # print(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}")
+                    if col_name in ['Date_scalar', 'StartTime_scalar']:
+                         logger.info(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}, Mapped unique values (sample): {mapped_series.dropna().unique()[:5]}")
                 else:
-                    print(f"  Warning: Interval rule column '{col_name}' not in data_to_map_for_rules.")
+                    logger.warning(f"  Warning: Interval rule column '{col_name}' not in data_to_map_for_rules.")
         else:
-            print("Warning: No interval rules found in category_mapping.")
+            logger.warning("Warning: No interval rules found in category_mapping.")
 
         # --- (Optional) Categorical and Binary Feature Mapping --- 
         # If fake signatures should also be generated based on categorical/binary features from category_mapping:
