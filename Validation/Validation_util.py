@@ -291,80 +291,75 @@ def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dic
     """
     Maps raw data columns to group indices based on provided category mapping rules.
     Retains original columns that are not part of the mapping rules.
+    Handles interval, categorical, and binary features.
     """
-    if not isinstance(category_mapping, dict) or 'interval' not in category_mapping:
-        logger.error("Invalid category_mapping format. Expected a dict with an 'interval' key.")
-        return pd.DataFrame() # Return empty DataFrame if mapping is invalid
-
-    interval_mapping_df = category_mapping.get('interval')
-    if not isinstance(interval_mapping_df, pd.DataFrame):
-        logger.error("'interval' in category_mapping is not a DataFrame.")
+    if not isinstance(category_mapping, dict):
+        logger.error("Invalid category_mapping format. Expected a dict.")
         return pd.DataFrame()
 
-    # --- Start Change ---
     # Initialize the new DataFrame with the original data.
     # This ensures all columns not in the mapping are preserved.
     mapped_df = data_df.copy()
     logger.info(f"Initialized mapped_df with shape {mapped_df.shape} to preserve all original columns.")
-    # --- End Change ---
 
-    # Get the list of columns that have interval mapping rules
-    features_to_map = [col for col in interval_mapping_df.columns if col in data_df.columns]
-    
-    logger.info(f"Found {len(features_to_map)} features with interval mapping rules to apply: {features_to_map}")
+    # --- 1. Interval Mapping ---
+    interval_mapping_df = category_mapping.get('interval')
+    if isinstance(interval_mapping_df, pd.DataFrame) and not interval_mapping_df.empty:
+        features_to_map = [col for col in interval_mapping_df.columns if col in data_df.columns]
+        logger.info(f"Applying interval mapping for {len(features_to_map)} features: {features_to_map}")
+        for feature in features_to_map:
+            if data_df[feature].notna().any():
+                rule_series = interval_mapping_df[feature].dropna()
+                if not rule_series.empty:
+                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_df[feature], rule_series, feature_name=feature)
+                    mapped_df[feature] = mapped_series
+    else:
+        logger.info("No 'interval' mapping rules found or rules are empty.")
 
-    if not features_to_map:
-        logger.warning("No columns from the mapping rules were found in the input data. Returning original data.")
-        return data_df # No mapping to be done
-
-    # Apply interval mapping for each feature
-    for feature in features_to_map:
-        logger.info(f"Applying interval mapping for feature: '{feature}'")
+    # --- 2. Categorical Mapping ---
+    categorical_rules = category_mapping.get('categorical')
+    if isinstance(categorical_rules, dict) and categorical_rules:
+        features_to_map = [col for col in categorical_rules.keys() if col in data_df.columns]
+        logger.info(f"Applying categorical mapping for {len(features_to_map)} features: {features_to_map}")
+        for feature in features_to_map:
+            mapping_dict = categorical_rules[feature]
+            if isinstance(mapping_dict, dict) and data_df[feature].notna().any():
+                # Ensure keys in mapping_dict and values in data column are compatible types
+                # A common case is string keys in dict but numeric/mixed values in column.
+                # Safest approach is to cast data to string if dict keys are strings.
+                data_series = data_df[feature]
+                if any(isinstance(k, str) for k in mapping_dict.keys()):
+                    mapped_df[feature] = data_series.astype(str).map(mapping_dict)
+                else:
+                    mapped_df[feature] = data_series.map(mapping_dict)
+    else:
+        logger.info("No 'categorical' mapping rules found or rules are empty.")
         
-        # Check if the column in data_df is suitable for mapping
-        if data_df[feature].isnull().all():
-            logger.warning(f"Skipping mapping for '{feature}' as the column in the data is all null.")
-            # The column in mapped_df will retain its original (all-NaN) state
-            continue
-            
-        rule_series = interval_mapping_df[feature].dropna()
-        if rule_series.empty:
-            logger.warning(f"No mapping rules found for feature '{feature}' in the mapping definition.")
-            continue
-
-        # --- Start Change ---
-        # Apply the mapping and update the column in the copied DataFrame
-        mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_df[feature], rule_series, feature_name=feature)
-        mapped_df[feature] = mapped_series
-        logger.info(f"Finished mapping for '{feature}'. Mapped series has {mapped_series.notna().sum()} non-null values.")
-        # --- End Change ---
-
-    # --- Note on Categorical/Binary Mapping ---
-    # The original logic only processes 'interval' mappings.
-    # If categorical or binary mappings are needed, their logic would be added here,
-    # similarly updating columns in `mapped_df`.
-    
-    # For example:
-    # categorical_mapping_df = category_mapping.get('categorical')
-    # if isinstance(categorical_mapping_df, pd.DataFrame):
-    #     categorical_features_to_map = [col for col in categorical_mapping_df.columns if col in data_df.columns]
-    #     for feature in categorical_features_to_map:
-    #         # ... logic to apply categorical mapping ...
-    #         mapped_df[feature] = ...
+    # --- 3. Binary Mapping ---
+    binary_rules = category_mapping.get('binary')
+    if isinstance(binary_rules, dict) and binary_rules:
+        features_to_map = [col for col in binary_rules.keys() if col in data_df.columns]
+        logger.info(f"Applying binary mapping for {len(features_to_map)} features: {features_to_map}")
+        for feature in features_to_map:
+            if data_df[feature].notna().any():
+                 # For binary, often a direct boolean-to-int cast is sufficient if no explicit map is given
+                 if data_df[feature].dtype == bool:
+                     mapped_df[feature] = data_df[feature].astype(int)
+                 else:
+                     logger.warning(f"Binary mapping for non-boolean column '{feature}' is ambiguous and was skipped.")
+    else:
+        logger.info("No 'binary' mapping rules found or rules are empty.")
 
     logger.info(f"Final shape of mapped DataFrame: {mapped_df.shape}")
-    
-    # --- Debugging: Check the state of a key column after mapping ---
-    if 'TargetIP' in mapped_df.columns:
-        logger.info(f"Debug: State of 'TargetIP' column after all mapping. Non-null count: {mapped_df['TargetIP'].notna().sum()}")
-        if mapped_df['TargetIP'].notna().any():
-            logger.info(f"Debug: First 5 non-null 'TargetIP' values: {mapped_df['TargetIP'].dropna().head().tolist()}")
-        else:
-            logger.info("Debug: 'TargetIP' column contains all null values after mapping.")
-            # Also check the original data's state for this column
-            if 'TargetIP' in data_df.columns:
-                 logger.info(f"Debug: Original 'TargetIP' column non-null count: {data_df['TargetIP'].notna().sum()}")
 
+    # --- Debugging: Check the state of key columns after mapping ---
+    for col_to_check in ['TargetIP', 'TransactionID']:
+        if col_to_check in mapped_df.columns:
+            logger.info(f"Debug: State of '{col_to_check}' column after all mapping. Non-null count: {mapped_df[col_to_check].notna().sum()}")
+            if mapped_df[col_to_check].notna().any():
+                logger.info(f"Debug: First 5 non-null '{col_to_check}' values: {mapped_df[col_to_check].dropna().head().tolist()}")
+            else:
+                logger.info(f"Debug: '{col_to_check}' column contains all null values after mapping.")
 
     return mapped_df
 
