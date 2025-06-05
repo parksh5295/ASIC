@@ -29,7 +29,7 @@ def save_to_json(data, file_path, indent=4):
         return False
 
 def load_from_json(file_path):
-    \"\"\"
+    """
     Loads data from a JSON file.
 
     Args:
@@ -37,7 +37,7 @@ def load_from_json(file_path):
 
     Returns:
         The loaded data, or None if an error occurs.
-    \"\"\"
+    """
     if not os.path.exists(file_path):
         logger.error(f"File not found: {file_path}")
         return None
