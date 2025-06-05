@@ -32,6 +32,7 @@ from Validation.Validation_util import map_data_using_category_mapping
     
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut_GEN
 from Dataset_Choose_Rule.Raw_Dataset_infos import Dataset_infos
+from Dataset_Choose_Rule.association_data_choose import file_path_line_association
 
 
 # Logging settings
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 GRANDPARENT_DIR = os.path.dirname(PROJECT_ROOT) # This should give ~/asic/
 BASE_SIGNATURE_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature")
 BASE_MAPPING_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature") # Corrected path
-BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "train_test_data") # Also update for data path
+BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset", "load_dataset") # Corrected path for datasets
 
 
 def load_signatures(file_type, config_name_prefix):
@@ -213,10 +214,44 @@ def load_category_mapping(file_type, file_number):
         return None
 
 
-def load_dataset(file_type, dataset_name_suffix):
-    dataset_filename = f"{file_type}_{dataset_name_suffix}.csv"
-    dataset_path = os.path.join(BASE_DATA_PATH, file_type, dataset_filename)
-    logger.info(f"Loading dataset from: {dataset_path}")
+def load_dataset(file_type):
+    # Get the base dataset path from the imported function
+    # file_path_line_association returns (file_path, file_number), we only need file_path
+    base_dataset_path, _ = file_path_line_association(file_type)
+
+    # The path returned by file_path_line_association is relative to its own location.
+    # We need to make it absolute or relative to the current PROJECT_ROOT or GRANDPARENT_DIR.
+    # Assuming paths in association_data_choose.py like "../Dataset/load_dataset/..." 
+    # are intended to be relative from a script in a subfolder of GRANDPARENT_DIR (e.g. PROJECT_ROOT)
+    # So, os.path.join(GRANDPARENT_DIR, path_from_assoc_choose.lstrip('../')) might work.
+    # Let's check how GRANDPARENT_DIR and BASE_DATA_PATH are defined again.
+    # GRANDPARENT_DIR = os.path.dirname(PROJECT_ROOT) # e.g., /home/work/asic
+    # BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset", "load_dataset") # e.g., /home/work/asic/Dataset/load_dataset
+    
+    # file_path_line_association returns paths like "../Dataset/load_dataset/CICModbus23/CICModbus23_total.csv"
+    # If Validate_Signature_ex.py is at /home/work/asic/ASIC_0605/Validate_Signature_ex.py
+    # Then os.path.abspath(os.path.join(os.path.dirname(__file__), base_dataset_path)) should resolve correctly.
+    # Or, more simply, ensure base_dataset_path is correctly relative to GRANDPARENT_DIR if it starts with "../"
+    
+    if base_dataset_path.startswith("../"):
+        # Resolve path relative to the directory of Validate_Signature_ex.py (PROJECT_ROOT)
+        # then go up one level as implied by ".." in the path string from association_data_choose
+        # and then follow the rest of the path. GRANDPARENT_DIR is effectively PROJECT_ROOT/..
+        dataset_path = os.path.abspath(os.path.join(PROJECT_ROOT, base_dataset_path))
+    elif base_dataset_path.startswith("~"):
+        dataset_path = os.path.expanduser(base_dataset_path)
+    else: 
+        # If it's already an absolute path or a path type not starting with ../ or ~
+        # This case might need more specific handling if other path types occur
+        dataset_path = base_dataset_path
+
+    # Original filename logic for logging, though the actual file loaded is dataset_path
+    # This might be confusing if dataset_name_suffix was important for distinguishing versions/types.
+    # For now, we use the direct path. The concept of dataset_name_suffix might need re-evaluation
+    # if different versions of the *same base file* are needed.
+    dataset_filename_for_log = os.path.basename(dataset_path) 
+
+    logger.info(f"Loading dataset from: {dataset_path} (determined by association_data_choose.py)")
     if not os.path.exists(dataset_path):
         logger.error(f"Dataset file not found: {dataset_path}")
         return None
@@ -227,12 +262,13 @@ def load_dataset(file_type, dataset_name_suffix):
     except Exception as e:
         logger.error(f"Error loading data using file_cut_GEN for {dataset_path}: {e}")
         try:
-            df = pd.read_csv(dataset_path)
+            # Fallback to simple pd.read_csv if file_cut_GEN fails
+            df = pd.read_csv(dataset_path, header=header_row) # Pass header_row here too
             logger.info(f"Successfully loaded {dataset_path} using pd.read_csv fallback.")
         except Exception as e_pd:
             logger.error(f"Error loading data using pd.read_csv for {dataset_path}: {e_pd}")
             return None
-    logger.info(f"Loaded dataset {dataset_filename}, shape: {df.shape}")
+    logger.info(f"Loaded dataset {dataset_filename_for_log}, shape: {df.shape if df is not None else 'Error'}")
     return df
 
 def main(args):
@@ -244,9 +280,10 @@ def main(args):
     category_mapping = load_category_mapping(args.file_type, args.file_number)
     if category_mapping is None: return
 
-    raw_attack_free_df = load_dataset(args.file_type, args.attack_free_suffix)
+    # Pass only file_type to load_dataset as it now determines path internally
+    raw_attack_free_df = load_dataset(args.file_type) 
     if raw_attack_free_df is None: return
-    raw_test_df = load_dataset(args.file_type, args.test_data_suffix)
+    raw_test_df = load_dataset(args.file_type) # Assuming test data also comes from the same base file
     if raw_test_df is None: return
 
     logger.info("Applying time_scalar_transfer to datasets...")
