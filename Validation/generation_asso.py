@@ -78,41 +78,31 @@ def temp_rarm_for_fake_fp(df, min_support_threshold, num_rules_to_generate=5, it
         if len(generated_rules) >= num_rules_to_generate:
             break
 
-        # For each combination of columns, create itemsets using unique value combinations from these columns.
-        # This can be complex if we try all unique value combinations.
-        # Simplification: For a given column combination, try to form a rule based on common/frequent values.
-        # As a starting point, let's use the most frequent value for each column in the combo.
-        # If a column has only one unique value, that's used.
-        
         current_itemset_conditions = {}
         valid_condition_set = True
         for col_name in col_combo:
-            # df[col_name] might contain NaN, mode() ignores NaNs by default.
             mode_result = df[col_name].mode() 
             if not mode_result.empty:
-                # Take the first mode if multiple exist
-                current_itemset_conditions[col_name] = mode_result.iloc[0]
+                # Take the first mode if multiple exist.
+                # Convert the value to a string to ensure type consistency during rule application.
+                value = mode_result.iloc[0]
+                current_itemset_conditions[col_name] = str(value)
             else:
-                # This column has no non-NaN values, so cannot form a condition.
-                # logger.debug(f"temp_rarm_for_fake_fp: Column '{col_name}' has no mode (all NaN?). Skipping this column combination.")
                 valid_condition_set = False
                 break
         
         if not valid_condition_set or not current_itemset_conditions:
-            continue # Try next column combination
+            continue
 
         # Calculate actual support for this specific itemset
+        # calculate_actual_support can handle string values in its query.
         actual_support = calculate_actual_support(df, current_itemset_conditions)
-        # logger.debug(f"temp_rarm_for_fake_fp: Itemset {current_itemset_conditions}, Actual Support: {actual_support:.4f}")
 
         if actual_support >= min_support_threshold:
-            rule_dict = dict(current_itemset_conditions) # Make a copy
+            rule_dict = dict(current_itemset_conditions)
             rule_dict['confidence'] = fixed_confidence
             rule_dict['support'] = actual_support
             
-            # Avoid adding exact duplicate rules if different column combinations somehow lead to the same itemset
-            # (e.g. if using a fixed set of values rather than dynamic modes)
-            # For now, assumes each col_combo + mode logic yields distinct enough rule_dicts.
             generated_rules.append(rule_dict)
             logger.info(f"temp_rarm_for_fake_fp: Added rule {rule_dict} with support {actual_support:.4f}")
 
