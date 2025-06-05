@@ -165,7 +165,7 @@ def main(args):
     logger.info("\n--- Generating and Evaluating Fake FP Signatures ---")
     fake_fp_rules = generate_fake_fp_signatures(
         args.file_type, args.file_number, category_mapping, [], 
-        association_method=args.assoc_method, association_metric=args.assoc_metric,
+        association_method=args.association, association_metric=args.association_metric,
         num_fake_signatures=args.num_fake_signatures, min_support=args.fake_min_support)
 
     if not fake_fp_rules:
@@ -210,8 +210,8 @@ if __name__ == "__main__":
     parser.add_argument("--combine_method", type=str, default='max', choices=['max', 'avg', 'weighted'], help="Method to combine FP scores")
     parser.add_argument("--belief_threshold", type=float, default=0.5, help="Belief threshold for classifying as FP")
     parser.add_argument("--num_fake_signatures", type=int, default=5, help="Number of fake FP signatures to generate")
-    parser.add_argument("--assoc_method", type=str, default='apriori', help="Association rule method for fake sigs (e.g. apriori, fpgrowth)")
-    parser.add_argument("--assoc_metric", type=str, default='confidence', help="Association rule metric for fake sigs")
+    parser.add_argument("--association", type=str, default='apriori', help="Association rule method for fake sigs (e.g. apriori, fpgrowth)")
+    parser.add_argument("--association_metric", type=str, default='confidence', help="Association rule metric for fake sigs")
     parser.add_argument("--fake_min_support", type=float, default=0.2, help="Minimum support for generating fake FP signatures")
     cli_args = parser.parse_args()
     main(cli_args) 
