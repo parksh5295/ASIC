@@ -158,12 +158,23 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         else:
             logger.warning("Warning: No interval/categorical rules found in category_mapping ('interval' key).")
 
-        # --- (Optional) Categorical and Binary Feature Mapping --- 
-        # If fake signatures should also be generated based on categorical/binary features from category_mapping:
-        # This part would require similar logic: iterate through category_mapping['categorical'] and category_mapping['binary'],
-        # parse their rules (which are simpler, usually direct value-to-group), and apply to data_to_map_for_rules.
-        # For now, assuming fake signatures are primarily based on interval features as per original structure focus.
-        # If categorical_rules_df = category_mapping.get('categorical', pd.DataFrame()): ... etc.
+        # --- (Optional) Categorical and Binary Feature Mapping ---
+        categorical_rules = category_mapping.get('categorical')
+        if isinstance(categorical_rules, dict) and categorical_rules:
+            logger.info("Applying categorical mapping for fake signature generation...")
+            for col_name, mapping_dict in categorical_rules.items():
+                if col_name in data_to_map_for_rules.columns and isinstance(mapping_dict, dict):
+                    # Robust mapping: convert both data and mapping keys to string
+                    type_unified_mapping_dict = {str(k): v for k, v in mapping_dict.items()}
+                    mapped_series = data_to_map_for_rules[col_name].astype(str).map(type_unified_mapping_dict)
+                    all_mapped_series[col_name] = mapped_series
+
+        binary_rules = category_mapping.get('binary')
+        if isinstance(binary_rules, dict) and binary_rules:
+            logger.info("Applying binary mapping for fake signature generation...")
+            for col_name in binary_rules.keys():
+                if col_name in data_to_map_for_rules.columns and data_to_map_for_rules[col_name].dtype == bool:
+                     all_mapped_series[col_name] = data_to_map_for_rules[col_name].astype(int)
 
         if not all_mapped_series:
             print("Warning: No features were mapped. Cannot generate association rules.")

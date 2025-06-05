@@ -161,20 +161,6 @@ def load_category_mapping(file_type, file_number):
         logger.error(f"CSV Mapping file not found: {map_file_path}")
         return None
 
-    '''
-    mapping_data = load_from_json(map_file_path)
-    
-    if mapping_data and 'interval' in mapping_data and isinstance(mapping_data['interval'], dict):
-        try:
-            # Ensure keys of inner dicts are preserved if they are numeric (e.g. for Date_scalar original string keys)
-            # pd.DataFrame will try to infer dtype for columns. If original rule strings are keys, that's fine.
-            mapping_data['interval'] = pd.DataFrame(mapping_data['interval'])
-            logger.info("Converted 'interval' mapping from dict to DataFrame.")
-        except Exception as e:
-            logger.error(f"Failed to convert 'interval' mapping to DataFrame: {e}")
-    return mapping_data
-    '''
-
     try:
         df_mapping = pd.read_csv(map_file_path)
         if df_mapping.empty:
@@ -182,34 +168,29 @@ def load_category_mapping(file_type, file_number):
             return None
         
         category_mapping = {
-            'interval': {},
-            # Add other types like 'categorical', 'binary' if they are also expected from CSV
-            # For now, focusing on 'interval' based on the provided CSV structure
+            'interval': pd.DataFrame(),
+            'categorical': {},
+            'binary': {}
         }
         
-        for column in df_mapping.columns:
-            # Collect non-NaN mapping strings for the current column
-            # The Series constructor will automatically handle NaN values by not including them if not told otherwise
-            # and will keep the original index if needed, though here we just want the values.
-            column_mappings = df_mapping[column].dropna().astype(str).tolist()
-            if column_mappings: # Only add if there are actual mapping entries
-                category_mapping['interval'][column] = pd.Series(column_mappings)
-            else:
-                logger.warning(f"No valid mapping entries found for column '{column}' in {map_file_path}")
+        # Reconstruct interval, categorical, and binary mappings from the CSV
+        interval_cols = [col for col in df_mapping.columns if df_mapping[col].dropna().astype(str).str.contains('=', na=False).any()]
+        if interval_cols:
+            category_mapping['interval'] = df_mapping[interval_cols].copy()
 
-        if not category_mapping['interval']:
-            logger.error(f"No interval mappings were extracted from {map_file_path}")
-            return None # Or return an empty structure based on downstream requirements
+        categorical_cols = [col for col in df_mapping.columns if col not in interval_cols]
+        for col in categorical_cols:
+             unique_vals = df_mapping[col].dropna().unique()
+             mapping_dict = {val: i for i, val in enumerate(unique_vals)}
+             # Simple heuristic: if only 2 unique values, consider it binary
+             if len(unique_vals) <= 2:
+                 category_mapping['binary'][col] = mapping_dict
+             else:
+                 category_mapping['categorical'][col] = mapping_dict
 
-        # Convert the dictionary of Series to a DataFrame for 'interval'
-        # This matches the structure expected by the rest of the original code if it was loading from JSON dict
-        category_mapping['interval'] = pd.DataFrame(category_mapping['interval'])
         logger.info(f"Successfully loaded and processed category mapping from {map_file_path}")
         return category_mapping
         
-    except pd.errors.EmptyDataError:
-        logger.error(f"Mapping CSV file is empty or unreadable: {map_file_path}")
-        return None
     except Exception as e:
         logger.error(f"Error processing mapping CSV file {map_file_path}: {e}")
         return None
@@ -244,6 +225,8 @@ def load_dataset(file_type):
     else: 
         # If it's already an absolute path or a path type not starting with ../ or ~
         # This case might need more specific handling if other path types occur
+        # If it's already an absolute path or a path type not starting with ../ or ~
+        # This case might need more specific handling if other path types occur
         dataset_path = base_dataset_path
 
     # Original filename logic for logging, though the actual file loaded is dataset_path
@@ -273,178 +256,99 @@ def load_dataset(file_type):
     return df
 
 def main(args):
-    logger.info(f"Starting validation process for {args.file_type}, number {args.file_number}, config: {args.config_name_prefix}")
-
+    """Main execution function."""
+    logger.info(f"--- Starting Validation Script with args: {args} ---")
+    
     signatures = load_signatures(args.file_type, args.config_name_prefix)
-    if signatures is None: return
-
+    if signatures is None:
+        logger.error("Stopping due to failure in loading signatures.")
+        return
+    
     category_mapping = load_category_mapping(args.file_type, args.file_number)
-    if category_mapping is None: return
-
-    # Pass only file_type to load_dataset as it now determines path internally
-    raw_attack_free_df = load_dataset(args.file_type) 
-    if raw_attack_free_df is None: return
-    raw_test_df = load_dataset(args.file_type) # Assuming test data also comes from the same base file
-    if raw_test_df is None: return
-
-    logger.info("Applying time_scalar_transfer to datasets...")
-    processed_attack_free_df = time_scalar_transfer(raw_attack_free_df.copy(), args.file_type)
-    processed_test_df = time_scalar_transfer(raw_test_df.copy(), args.file_type)
-
-    # Apply CICModbus specific numeric time scalar conversion if applicable
-    if args.file_type in ['CICModbus23', 'CICModbus']:
-        logger.info(f"Applying CICModbus specific numeric time scalar conversion for {args.file_type}...")
-        if processed_attack_free_df is not None:
-            processed_attack_free_df = convert_cic_time_to_numeric_scalars(processed_attack_free_df)
-        if processed_test_df is not None:
-            processed_test_df = convert_cic_time_to_numeric_scalars(processed_test_df)
-    
-    # --- DEBUG LOGGING START ---
-    logger.info("--- Debugging: Category Mapping for Date/Time Scalars ---")
-    if category_mapping and 'interval' in category_mapping and isinstance(category_mapping['interval'], pd.DataFrame):
-        interval_df = category_mapping['interval']
-        if 'Date_scalar' in interval_df.columns:
-            logger.info(f"Mapping rules for Date_scalar:\n{interval_df['Date_scalar'].dropna().unique().tolist()}")
-        else:
-            logger.info("No Date_scalar mapping rules found in category_mapping['interval'].")
-        if 'StartTime_scalar' in interval_df.columns:
-            logger.info(f"Mapping rules for StartTime_scalar:\n{interval_df['StartTime_scalar'].dropna().unique().tolist()}")
-        else:
-            logger.info("No StartTime_scalar mapping rules found in category_mapping['interval'].")
-    else:
-        logger.info("category_mapping['interval'] is not a DataFrame or not found.")
-
-    logger.info("--- Debugging: Processed DataFrame Date/Time Scalar Values (sample) ---")
-    if not processed_attack_free_df.empty:
-        if 'Date_scalar' in processed_attack_free_df.columns:
-            logger.info(f"Sample Date_scalar values from processed_attack_free_df (first 5 unique non-NaN):\n{processed_attack_free_df['Date_scalar'].dropna().unique()[:5]}")
-        else:
-            logger.info("Date_scalar column not found in processed_attack_free_df.")
-        if 'StartTime_scalar' in processed_attack_free_df.columns:
-            logger.info(f"Sample StartTime_scalar values from processed_attack_free_df (first 5 unique non-NaN):\n{processed_attack_free_df['StartTime_scalar'].dropna().unique()[:5]}")
-        else:
-            logger.info("StartTime_scalar column not found in processed_attack_free_df.")
-    else:
-        logger.info("processed_attack_free_df is empty before mapping.")
-    # --- DEBUG LOGGING END ---
-
-    logger.info("Mapping datasets using category_mapping...")
-    
-    # --- START DEBUG ---
-    # Verify the inputs to map_data_using_category_mapping
-    logger.info("--- Verifying inputs to map_data_using_category_mapping for `attack_free_df` ---")
-    if not processed_attack_free_df.empty:
-        logger.info(f"Shape of `processed_attack_free_df`: {processed_attack_free_df.shape}")
-        # Log which columns are present before mapping
-        logger.info(f"Columns in `processed_attack_free_df`: {processed_attack_free_df.columns.tolist()}")
-        logger.info(f"Sample of `processed_attack_free_df` (first 5 rows):\n{processed_attack_free_df.head().to_string()}")
-    else:
-        logger.warning("`processed_attack_free_df` is empty before mapping.")
-        
-    if category_mapping:
-        logger.info("--- Verifying `category_mapping` rules ---")
-        if 'interval' in category_mapping and not category_mapping['interval'].empty:
-            logger.info(f"Interval mapping rules exist for columns: {category_mapping['interval'].columns.tolist()}")
-        else:
-            logger.info("No interval mapping rules found.")
-        if 'categorical' in category_mapping and not category_mapping['categorical'].empty:
-            logger.info(f"Categorical mapping rules exist for columns: {category_mapping['categorical'].columns.tolist()}")
-        else:
-            logger.info("No categorical mapping rules found.")
-    else:
-        logger.warning("`category_mapping` is empty or None.")
-    # --- END DEBUG ---
-
-    mapped_attack_free_df = map_data_using_category_mapping(processed_attack_free_df, category_mapping, file_type=args.file_type)
-    mapped_test_df = map_data_using_category_mapping(processed_test_df, category_mapping, file_type=args.file_type)
-
-    if mapped_attack_free_df.empty or mapped_test_df.empty:
-        logger.error("One or both datasets are empty after mapping. Exiting.")
+    if category_mapping is None:
+        logger.error("Stopping due to failure in loading category mapping.")
         return
 
-    logger.info("\n--- Evaluating False Positives for Loaded Signatures ---")
-    alerts_df = apply_signatures_to_dataset(mapped_test_df, signatures)
+    data_df = load_dataset(args.file_type)
+    if data_df is None or data_df.empty:
+        logger.error("Stopping due to failure in loading or processing dataset.")
+        return
+
+    logger.info("--- Generating Fake FP Signatures ---")
+    
+    # We need the full category_mapping to generate fake signatures correctly
+    fake_sigs_list, _, _, _, _, _ = generate_fake_fp_signatures(
+        file_type=args.file_type,
+        file_number=args.file_number,
+        category_mapping=category_mapping,
+        data_list=[], # No longer used for mapping here
+        association_method=args.association,
+        association_metric=args.association_metric,
+        num_fake_signatures=args.num_fake_signatures
+    )
+
+    if fake_sigs_list:
+        logger.info(f"Generated {len(fake_sigs_list)} fake FP signatures.")
+        signatures.extend(fake_sigs_list)
+    else:
+        logger.warning("Failed to generate any fake FP signatures.")
+
+    logger.info(f"Total signatures for validation (original + fake): {len(signatures)}")
+    
+    logger.info("--- Mapping raw data to group IDs ---")
+    group_mapped_df = map_data_using_category_mapping(data_df, category_mapping, file_type=args.file_type)
+
+    if group_mapped_df.empty:
+        logger.error("Mapped data is empty. Cannot proceed with validation.")
+        return
+
+    logger.info("\n--- Evaluating Signatures on Mapped Data ---")
+    alerts_df = apply_signatures_to_dataset(group_mapped_df, signatures)
 
     if alerts_df.empty:
-        logger.info("No alerts generated from the test data with loaded signatures.")
-    else:
-        logger.info(f"Generated {len(alerts_df)} alerts from test data.")
-        fp_results_df = calculate_fp_scores(alerts_df, mapped_attack_free_df, file_type=args.file_type,
-                                            t0_nra=args.t0_nra, n0_nra=args.n0_nra,
-                                            lambda_haf=args.lambda_haf, lambda_ufp=args.lambda_ufp)
-        signatures_map = {sig['id']: sig for sig in signatures}
-        evaluated_fp_df = evaluate_false_positives(
-            fp_results_df, signatures_map, known_fp_sig_dicts=[], 
-            attack_free_df=mapped_attack_free_df, file_type=args.file_type,
-            combine_method=args.combine_method, belief_threshold=args.belief_threshold)
-        summary = summarize_fp_results(evaluated_fp_df)
-        logger.info(f"Summary of FP evaluation for loaded signatures:\n{summary}")
+        logger.info("No alerts generated from the data.")
+        logger.info("Validation process finished.")
+        return
 
-    logger.info("\n--- Generating and Evaluating Fake FP Signatures ---")
+    logger.info(f"Generated {len(alerts_df)} total alerts.")
     
-    # We must generate rules from the same data distribution they will be tested against.
-    # Therefore, we pass the `processed_attack_free_df` to the generation function.
-    # The function will then use THIS data to generate rules, instead of loading its own anomalous data.
-    returned_values = generate_fake_fp_signatures(
-        args.file_type, 
-        args.file_number, 
-        category_mapping, 
-        processed_attack_free_df, # <-- Pass the correct dataframe here instead of an empty list
-        association_method=args.association, 
-        association_metric=args.association_metric,
-        num_fake_signatures=args.num_fake_signatures, 
-        min_support=args.fake_min_support
+    # Separate alerts from original vs fake signatures
+    fake_sig_ids = {s['id'] for s in fake_sigs_list}
+    original_sig_alerts = alerts_df[~alerts_df['signature_id'].isin(fake_sig_ids)]
+    fake_sig_alerts = alerts_df[alerts_df['signature_id'].isin(fake_sig_ids)]
+
+    logger.info(f"Alerts from original signatures: {len(original_sig_alerts)}")
+    logger.info(f"Alerts from fake signatures: {len(fake_sig_alerts)}")
+
+    # Evaluate all alerts together
+    signatures_map = {sig['id']: sig for sig in signatures}
+    evaluated_fp_df = evaluate_false_positives(
+        alerts_df=alerts_df,
+        current_signatures_map=signatures_map,
+        attack_free_df=group_mapped_df,
+        t0_nra=args.t0_nra, n0_nra=args.n0_nra,
+        lambda_haf=args.lambda_haf, lambda_ufp=args.lambda_ufp,
+        combine_method=args.combine_method, belief_threshold=args.belief_threshold,
+        file_type=args.file_type
     )
+
+    summary = summarize_fp_results(evaluated_fp_df)
+
+    # Log summary for fake signatures that were caught or escaped
+    if fake_sig_ids:
+        caught_fakes = {k: v for k, v in summary.get('High FP Signatures', {}).items() if k in fake_sig_ids}
+        escaped_fakes = fake_sig_ids - set(caught_fakes.keys())
+        logger.info(f"\n--- FAKE SIGNATURE ANALYSIS ---")
+        logger.info(f"Caught Fake Signatures: {len(caught_fakes)} out of {len(fake_sig_ids)}")
+        if caught_fakes:
+            logger.info(f"Caught IDs: {list(caught_fakes.keys())}")
+        logger.info(f"Escaped Fake Signatures: {len(escaped_fakes)}")
+        if escaped_fakes:
+             logger.info(f"Escaped IDs: {list(escaped_fakes)}")
+
+    logger.info("\n--- OVERALL FP SUMMARY ---")
+    logger.info(json.dumps(summary, indent=4))
     
-    fake_fp_rules_list = returned_values[0] # The list of signature dicts
-    # actual_num_generated_by_func = returned_values[5] # If needed for logging
-
-    if not fake_fp_rules_list: # Check the list itself
-        logger.info("No fake FP signatures were generated (list is empty).")
-    else:
-        logger.info(f"Generated {len(fake_fp_rules_list)} fake FP signatures.")
-        for i, rule in enumerate(fake_fp_rules_list):
-            # Now, 'rule' should be a dictionary from the list
-            if isinstance(rule, dict):
-                if 'id' not in rule: rule['id'] = f"fake_fp_sig_{i+1}"
-                if 'name' not in rule: rule['name'] = f"Fake FP Signature {i+1}"
-            else:
-                logger.warning(f"Skipping item in fake_fp_rules_list as it is not a dict: {rule}")
-                continue # Skip to the next item
-
-        # --- START DEBUG ---
-        # Verify the state of mapped_attack_free_df just before applying fake signatures
-        logger.info("--- Verifying `mapped_attack_free_df` before applying fake signatures ---")
-        if not mapped_attack_free_df.empty:
-            logger.info(f"Shape of mapped_attack_free_df: {mapped_attack_free_df.shape}")
-            # Use a buffer to capture the output of .info() to logger
-            buf = io.StringIO()
-            mapped_attack_free_df.info(buf=buf)
-            logger.info(f"Dtypes of mapped_attack_free_df:\n{buf.getvalue()}")
-            logger.info(f"Sample values of mapped_attack_free_df (first 5 rows):\n{mapped_attack_free_df.head().to_string()}")
-        else:
-            logger.warning("`mapped_attack_free_df` is empty before applying fake signatures.")
-        # --- END DEBUG ---
-
-        # Use fake_fp_rules_list for apply_signatures_to_dataset
-        fake_alerts_df = apply_signatures_to_dataset(mapped_attack_free_df, fake_fp_rules_list)
-
-        if fake_alerts_df.empty:
-            logger.info("No alerts generated from attack-free data with fake FP signatures.")
-        else:
-            logger.info(f"Generated {len(fake_alerts_df)} alerts from attack-free data using fake FP signatures.")
-            fake_fp_scores_df = calculate_fp_scores(
-                fake_alerts_df, mapped_attack_free_df, file_type=args.file_type,
-                t0_nra=args.t0_nra, n0_nra=args.n0_nra,
-                lambda_haf=args.lambda_haf, lambda_ufp=args.lambda_ufp)
-            fake_signatures_map = {sig['id']: sig for sig in fake_fp_rules_list}
-            evaluated_fake_fp_df = evaluate_false_positives(
-                fake_fp_scores_df, fake_signatures_map, known_fp_sig_dicts=[],
-                attack_free_df=mapped_attack_free_df, file_type=args.file_type,
-                combine_method=args.combine_method, belief_threshold=args.belief_threshold)
-            fake_summary = summarize_fp_results(evaluated_fake_fp_df)
-            logger.info(f"Summary of FP evaluation for FAKE signatures:\n{fake_summary}")
-
     logger.info("Validation process finished.")
 
 if __name__ == "__main__":
