@@ -198,9 +198,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Signature Validation and FP Evaluation Script")
-    parser.add_argument("--file_type", type=str, required=True, help="Type of the dataset (e.g., CICModbus23, DARPA98)")
-    parser.add_argument("--file_number", type=str, required=True, help="Identifier for the dataset instance/config (e.g., '1', 'RARM_1')")
-    parser.add_argument("--config_name_prefix", type=str, required=True, help="Prefix for signature and mapping config files (e.g., RARM_1_confidence_signature_train_ea15)")
+    parser.add_argument("--file_type", type=str, default='CICModbus23', required=True, help="Type of the dataset (e.g., CICModbus23, DARPA98)")
+    parser.add_argument("--file_number", type=str, default='1', required=True, help="Identifier for the dataset instance/config (e.g., '1', 'RARM_1')")
+    parser.add_argument("--config_name_prefix", type=str, default='RARM_1_confidence_signature_train_ea15', required=True, help="Prefix for signature and mapping config files (e.g., RARM_1_confidence_signature_train_ea15)")
     parser.add_argument("--attack_free_suffix", type=str, default="Normal_train_ea15", help="Suffix for the attack-free (normal) dataset filename")
     parser.add_argument("--test_data_suffix", type=str, default="Test_All_data", help="Suffix for the test dataset filename")
     parser.add_argument("--t0_nra", type=int, default=60, help="Time window for NRA calculation")
