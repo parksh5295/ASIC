@@ -280,7 +280,7 @@ def load_dataset(file_type):
         dataset_info = Dataset_infos.get(file_type, {})
         header_row = 0 if dataset_info.get('has_header', True) else None
         df = file_cut_GEN(file_type, dataset_path, 'all', header=header_row)
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error loading data using file_cut_GEN for {dataset_path}: {e}")
         try:
             # Fallback to simple pd.read_csv if file_cut_GEN fails
