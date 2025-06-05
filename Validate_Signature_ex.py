@@ -279,6 +279,53 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         #    Variable names `normal_data_to_map` and `normal_mapped_df` are INTENTIONALLY PRESERVED.
         print("Mapping the ANOMALOUS data (variable names kept as original)...")
         normal_data_to_map = normal_data_df.drop(columns=['label'], errors='ignore') # `normal_data_df` now holds anomalous data
+
+        '''
+        # === START DEBUG: Check category_mapping before map_intervals_to_groups ===
+        print("DEBUG: Checking category_mapping for Date_scalar and StartTime_scalar before map_intervals_to_groups:")
+        if isinstance(category_mapping, dict) and 'interval' in category_mapping:
+            interval_mapping = category_mapping['interval']
+            if isinstance(interval_mapping, pd.DataFrame):
+                if 'Date_scalar' in interval_mapping.columns:
+                    print("DEBUG: category_mapping['interval']['Date_scalar']:")
+                    print(interval_mapping['Date_scalar'].to_string())
+                else:
+                    print("DEBUG: 'Date_scalar' not found in category_mapping['interval'] columns.")
+                if 'StartTime_scalar' in interval_mapping.columns:
+                    print("DEBUG: category_mapping['interval']['StartTime_scalar']:")
+                    print(interval_mapping['StartTime_scalar'].to_string())
+                else:
+                    print("DEBUG: 'StartTime_scalar' not found in category_mapping['interval'] columns.")
+            elif isinstance(interval_mapping, dict): # If it's a dict of Series/lists
+                if 'Date_scalar' in interval_mapping:
+                    print("DEBUG: category_mapping['interval']['Date_scalar']:")
+                    print(str(interval_mapping['Date_scalar']))
+                else:
+                    print("DEBUG: 'Date_scalar' not found as a key in category_mapping['interval'].")
+                if 'StartTime_scalar' in interval_mapping:
+                    print("DEBUG: category_mapping['interval']['StartTime_scalar']:")
+                    print(str(interval_mapping['StartTime_scalar']))
+                else:
+                    print("DEBUG: 'StartTime_scalar' not found as a key in category_mapping['interval'].")
+            else:
+                print("DEBUG: category_mapping['interval'] is not a DataFrame or dict.")
+        else:
+            print("DEBUG: category_mapping is not a dict or 'interval' key is missing.")
+        # === END DEBUG ===
+
+        # === START WORKAROUND: Drop scalar time columns as they cause all NaNs due to missing mapping rules ===
+        # category_mapping loaded from mapped_info.csv currently lacks rules for Date_scalar and StartTime_scalar.
+        # This causes map_intervals_to_groups to convert them to all NaNs.
+        # Dropping them for now from the input to map_intervals_to_groups to allow fake signature generation to proceed.
+        # A proper fix involves regenerating mapped_info.csv from Main_Association_Rule.py to include these columns.
+        columns_to_drop_workaround = ['Date_scalar', 'StartTime_scalar']
+        actual_columns_to_drop_workaround = [col for col in columns_to_drop_workaround if col in normal_data_to_map.columns]
+        if actual_columns_to_drop_workaround:
+            print(f"INFO: WORKAROUND: Dropping columns {actual_columns_to_drop_workaround} from data before mapping in fake signature generation process.")
+            normal_data_to_map = normal_data_to_map.drop(columns=actual_columns_to_drop_workaround, errors='ignore')
+        # === END WORKAROUND ===
+        '''
+
         normal_mapped_df, _ = map_intervals_to_groups(normal_data_to_map, category_mapping, data_list, regul='N')
         print(f"Shape of mapped ANOMALOUS data: {normal_mapped_df.shape}")
 
@@ -477,6 +524,39 @@ def main():
 
     # Convert to DataFrame
     category_mapping['interval'] = pd.DataFrame(category_mapping['interval'])
+
+    # === START DEBUG: Check category_mapping in main() after loading and construction ===
+    print("DEBUG: category_mapping in main() - Structure Check")
+    if isinstance(category_mapping, dict):
+        print("  category_mapping is a dict.")
+        for key, value in category_mapping.items():
+            print(f"  Key: {key}, Type of Value: {type(value)}")
+            if key == 'interval' and isinstance(value, pd.DataFrame):
+                print(f"    Interval mapping is a DataFrame with columns: {value.columns.tolist()}")
+                if 'Date_scalar' in value.columns:
+                    print("    DEBUG: category_mapping['interval']['Date_scalar'] in main():")
+                    print(value['Date_scalar'].to_string())
+                    # Check data type of the first non-NaN mapping rule string
+                    first_date_scalar_rule = value['Date_scalar'].dropna().iloc[0] if not value['Date_scalar'].dropna().empty else None
+                    if first_date_scalar_rule:
+                         print(f"    DEBUG: Type of first Date_scalar rule string: {type(first_date_scalar_rule)}") # e.g., <class 'str'>
+                         print(f"    DEBUG: Example Date_scalar rule string: {first_date_scalar_rule}")
+                else:
+                    print("    DEBUG: 'Date_scalar' not found in category_mapping['interval'] columns in main().")
+
+                if 'StartTime_scalar' in value.columns:
+                    print("    DEBUG: category_mapping['interval']['StartTime_scalar'] in main():")
+                    print(value['StartTime_scalar'].to_string())
+                    first_starttime_scalar_rule = value['StartTime_scalar'].dropna().iloc[0] if not value['StartTime_scalar'].dropna().empty else None
+                    if first_starttime_scalar_rule:
+                         print(f"    DEBUG: Type of first StartTime_scalar rule string: {type(first_starttime_scalar_rule)}")
+                         print(f"    DEBUG: Example StartTime_scalar rule string: {first_starttime_scalar_rule}")
+                else:
+                    print("    DEBUG: 'StartTime_scalar' not found in category_mapping['interval'] columns in main().")
+    else:
+        print("  category_mapping is NOT a dict.")
+    print("DEBUG: End of category_mapping check in main()")
+    # === END DEBUG ===
 
     # Create data_list - list of DataFrames with empty columns
     data_list = [pd.DataFrame(), pd.DataFrame()]  # Add empty DataFrames at the beginning and end
