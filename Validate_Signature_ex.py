@@ -260,6 +260,12 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
 
         # 5. Run association rule mining on the (now anomalous) mapped data.
         #    A fixed min_confidence of 0.7 will be used for this specific generation process.
+
+        # === USER REQUESTED CHANGE: Force min_support to 0.2 for fake signature generation ===
+        min_support = 0.2
+        print(f"INFO: Overriding min_support to {min_support} for fake signature generation process (set before association).")
+        # === END USER REQUESTED CHANGE ===
+
         _internal_fixed_confidence = 0.7 # Temporary internal variable for clarity
         print(f"Running {association_method} on ANOMALOUS data (min_support={min_support}, using fixed min_confidence={_internal_fixed_confidence})...")
         
