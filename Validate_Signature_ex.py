@@ -17,7 +17,7 @@ if PROJECT_ROOT not in sys.path:
 
 # --- Import project-specific modules --- 
 # Now all local modules are imported relative to the project root.
-from utils.time_transfer import time_scalar_transfer
+from utils.time_transfer import time_scalar_transfer, convert_cic_time_to_numeric_scalars
 from utils.save_data_io import save_to_json, load_from_json
 
 from Rebuild_Method.FalsePositive_Check import (
@@ -289,6 +289,14 @@ def main(args):
     logger.info("Applying time_scalar_transfer to datasets...")
     processed_attack_free_df = time_scalar_transfer(raw_attack_free_df.copy(), args.file_type)
     processed_test_df = time_scalar_transfer(raw_test_df.copy(), args.file_type)
+
+    # Apply CICModbus specific numeric time scalar conversion if applicable
+    if args.file_type in ['CICModbus23', 'CICModbus']:
+        logger.info(f"Applying CICModbus specific numeric time scalar conversion for {args.file_type}...")
+        if processed_attack_free_df is not None:
+            processed_attack_free_df = convert_cic_time_to_numeric_scalars(processed_attack_free_df)
+        if processed_test_df is not None:
+            processed_test_df = convert_cic_time_to_numeric_scalars(processed_test_df)
     
     # --- DEBUG LOGGING START ---
     logger.info("--- Debugging: Category Mapping for Date/Time Scalars ---")

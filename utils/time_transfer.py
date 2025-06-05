@@ -175,3 +175,48 @@ def time_scalar_transfer(data, file_type):
         
     else:
         return data
+
+
+def convert_cic_time_to_numeric_scalars(data_df):
+    """
+    Converts 'Timestamp' (assumed to be datetime objects) in the DataFrame
+    to numeric 'Date_scalar' (seconds from the first timestamp in the series)
+    and 'StartTime_scalar' (seconds from midnight).
+    This is specifically for preparing CICModbus23-like data for numeric mapping.
+    It overwrites 'Date_scalar' and 'StartTime_scalar' if they exist, or creates them.
+    The input DataFrame is modified.
+    """
+    # Operate directly on data_df, assuming caller passes a copy if original should be preserved.
+    # df = data_df.copy() # Optional: if the function should always work on a copy.
+
+    if 'Timestamp' not in data_df.columns:
+        print("Error in convert_cic_time_to_numeric_scalars: 'Timestamp' column missing.")
+        return data_df 
+
+    # Ensure Timestamp is datetime, as this function relies on dt accessor.
+    # The original time_scalar_transfer for CICModbus should have converted 'Timestamp' to datetime.
+    # This is a safeguard. If 'Timestamp' is not datetime, conversion might fail or lead to errors.
+    if not pd.api.types.is_datetime64_any_dtype(data_df['Timestamp']):
+        data_df['Timestamp'] = pd.to_datetime(data_df['Timestamp'], errors='coerce')
+    
+    # Date_scalar: seconds from the first valid timestamp in the current data
+    if data_df['Timestamp'].notna().any(): # Check if there's any non-NaT timestamp
+        min_timestamp = data_df['Timestamp'].dropna().min() # Get min from non-NaT values
+        data_df['Date_scalar'] = (data_df['Timestamp'] - min_timestamp).dt.total_seconds()
+    else:
+        data_df['Date_scalar'] = np.nan 
+            
+    # StartTime_scalar: seconds since midnight
+    data_df['StartTime_scalar'] = (
+        data_df['Timestamp'].dt.hour * 3600
+        + data_df['Timestamp'].dt.minute * 60
+        + data_df['Timestamp'].dt.second
+        + data_df['Timestamp'].dt.microsecond / 1e6
+    )
+    
+    # Ensure scalars are NaN if Timestamp was NaT (or became NaT after coerce)
+    nan_timestamp_mask = data_df['Timestamp'].isna()
+    data_df.loc[nan_timestamp_mask, 'Date_scalar'] = np.nan
+    data_df.loc[nan_timestamp_mask, 'StartTime_scalar'] = np.nan
+    
+    return data_df
