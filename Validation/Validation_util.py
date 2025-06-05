@@ -324,14 +324,21 @@ def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dic
         for feature in features_to_map:
             mapping_dict = categorical_rules[feature]
             if isinstance(mapping_dict, dict) and data_df[feature].notna().any():
-                # Ensure keys in mapping_dict and values in data column are compatible types
-                # A common case is string keys in dict but numeric/mixed values in column.
-                # Safest approach is to cast data to string if dict keys are strings.
-                data_series = data_df[feature]
-                if any(isinstance(k, str) for k in mapping_dict.keys()):
-                    mapped_df[feature] = data_series.astype(str).map(mapping_dict)
-                else:
-                    mapped_df[feature] = data_series.map(mapping_dict)
+                # --- FINAL FIX: Robust mapping by converting both to string ---
+                logger.info(f"    Applying robust string-based mapping for '{feature}'.")
+                type_unified_mapping_dict = {str(k): v for k, v in mapping_dict.items()}
+                mapped_series = data_df[feature].astype(str).map(type_unified_mapping_dict)
+                
+                # Add enhanced logging to diagnose mapping issues
+                nan_count = mapped_series.isnull().sum()
+                if nan_count > 0:
+                    total_count = len(data_df[feature].dropna())
+                    logger.warning(f"    For '{feature}', {nan_count} out of {total_count} values could not be mapped and resulted in NaN.")
+                    unmapped_values = data_df[feature][mapped_series.isnull()].unique()
+                    logger.warning(f"    Sample of unmapped values for '{feature}': {unmapped_values[:5]}")
+                
+                mapped_df[feature] = mapped_series
+                # --- END FINAL FIX ---
     else:
         logger.info("No 'categorical' mapping rules found or rules are empty.")
         
