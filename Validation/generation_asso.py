@@ -78,14 +78,14 @@ def temp_rarm_for_fake_fp(df, min_support_threshold, num_rules_to_generate=5, it
         if len(generated_rules) >= num_rules_to_generate:
             break
 
-        # Step 1: Create an itemset with original data types (e.g., integer) for support calculation.
+        # Step 1: Create an itemset with original data types for support calculation.
         itemset_for_calc = {}
         valid_condition_set = True
         for col_name in col_combo:
             mode_result = df[col_name].mode() 
             if not mode_result.empty:
                 value = mode_result.iloc[0]
-                itemset_for_calc[col_name] = value # Keep original type for calculation
+                itemset_for_calc[col_name] = value # Keep original type
             else:
                 valid_condition_set = False
                 break
@@ -94,13 +94,12 @@ def temp_rarm_for_fake_fp(df, min_support_threshold, num_rules_to_generate=5, it
             continue
 
         # Step 2: Calculate support using the itemset with original types.
-        # This will now correctly compare int with int inside the dataframe.
         actual_support = calculate_actual_support(df, itemset_for_calc)
 
         if actual_support >= min_support_threshold:
             # Step 3: If support is sufficient, create the final rule dictionary
-            # for the application stage by converting its values to strings.
-            final_rule_dict = {str(k): str(v) for k, v in itemset_for_calc.items()}
+            # using the original data types. Do NOT convert values to strings.
+            final_rule_dict = dict(itemset_for_calc)
             
             final_rule_dict['confidence'] = fixed_confidence
             final_rule_dict['support'] = actual_support
