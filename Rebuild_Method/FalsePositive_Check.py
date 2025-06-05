@@ -5,6 +5,10 @@ import numpy as np
 from datetime import datetime, timedelta
 import random
 import multiprocessing # Added for parallel processing
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 # Helper function for parallel NRA calculation (MOVED TO TOP LEVEL)
 def _calculate_nra_for_alert_task(args_nra):
@@ -33,6 +37,15 @@ def _calculate_nra_for_alert_task(args_nra):
 def _apply_single_signature_task(args):
     df_subset, sig_info, df_columns = args # df_subset contains only necessary columns
     sig_id = sig_info.get('id', 'UNKNOWN_ID')
+
+    # --- START DEBUG LOGGING (for fake_fp_sig_1 only) ---
+    is_debug_signature = sig_id == "fake_fp_sig_1"
+    if is_debug_signature:
+        logger.info(f"[DEBUG] Processing signature: {sig_id}")
+        logger.info(f"[DEBUG] Rule to apply: {sig_info.get('rule_dict')}")
+        logger.info(f"[DEBUG] Data sample (first 5 rows) dtypes:\n{df_subset.head().info()}")
+        logger.info(f"[DEBUG] Data sample (first 5 rows) values:\n{df_subset.head()}")
+    # --- END DEBUG LOGGING ---
     
     if 'rule_dict' not in sig_info or not isinstance(sig_info['rule_dict'], dict):
         # print(f"Warning: Skipping signature {sig_id} due to missing or invalid 'rule_dict'.")
@@ -49,23 +62,54 @@ def _apply_single_signature_task(args):
         for col, value in sig_condition_dict.items():
             if col in df_columns: # Check against original df_columns passed to worker
                 col_series = df_subset[col]
-                if pd.api.types.is_numeric_dtype(col_series) and pd.api.types.is_numeric_dtype(value):
-                    mask &= (col_series.astype(float) == float(value))
-                elif pd.isna(value):
-                    mask &= col_series.isna()
-                else:
-                    mask &= col_series.eq(value)
+
+                # --- START DEBUG LOGGING (for fake_fp_sig_1 only) ---
+                if is_debug_signature:
+                    logger.info(f"  [DEBUG] Condition: Key='{col}', Sig_Value='{value}' (Type: {type(value)})")
+                    logger.info(f"  [DEBUG] Data Column '{col}' Dtype: {col_series.dtype}")
+                # --- END DEBUG LOGGING ---
+
+                # Perform comparison
+                current_mask = pd.Series(False, index=df_subset.index)
+                try:
+                    # Explicitly handle type casting for comparison
+                    # If signature value's type can be losslessly converted to the column's type, do it.
+                    if pd.api.types.is_numeric_dtype(col_series.dtype) and isinstance(value, (int, float)):
+                         # Convert both to float for safe comparison (e.g., int 10 and float 10.0)
+                        current_mask = col_series.astype(float) == float(value)
+                    elif pd.api.types.is_string_dtype(col_series.dtype) or col_series.dtype == 'object':
+                        # Convert both to string for comparison
+                        current_mask = col_series.astype(str) == str(value)
+                    else: # Fallback to general equality
+                        current_mask = col_series == value
+                except Exception as e:
+                    if is_debug_signature:
+                        logger.error(f"  [DEBUG] Error during comparison for key '{col}': {e}")
+
+                mask &= current_mask
+
+                # --- START DEBUG LOGGING (for fake_fp_sig_1 only) ---
+                if is_debug_signature:
+                    matches_found = mask.sum()
+                    logger.info(f"  [DEBUG] After Key '{col}', matches remaining: {matches_found}")
+                # --- END DEBUG LOGGING ---
+
                 if not mask.any():
                     break
             else:
-                # print(f"Warning: Column '{col}' (for sig {sig_id}) not in DataFrame subset. This signature won't match.")
+                if is_debug_signature:
+                    logger.warning(f"  [DEBUG] Skipping condition: Key '{col}' not in DataFrame columns.")
                 valid_signature_for_mask = False
                 break
         if not valid_signature_for_mask:
             mask = pd.Series(False, index=df_subset.index)
     except Exception as e:
-        # print(f"Error creating mask for signature {sig_id} in worker: {e}")
+        logger.error(f"Error creating mask for signature {sig_id} in worker: {e}")
         mask = pd.Series(False, index=df_subset.index)
+    
+    if is_debug_signature:
+        logger.info(f"[DEBUG] Final match count for signature {sig_id}: {mask.sum()}")
+
     return sig_id, mask
 
 # 1. Apply a signature to create an alert (Optimized Vectorized Version)
