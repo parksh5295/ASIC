@@ -1,5 +1,3 @@
-# Tools for signature verification
-
 import argparse
 import numpy as np
 import time
