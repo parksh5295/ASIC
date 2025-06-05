@@ -91,7 +91,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                     print(f"  Mapping interval column: {col_name}")
                     data_series = data_to_map_for_rules[col_name]
                     rule_series = interval_rules_df[col_name]
-                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series)
+                    mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=col_name)
                     all_mapped_series[col_name] = mapped_series
                     # Debugging for individual mapped series (can be enabled if needed)
                     # print(f"    DEBUG_FAKE_SIGS: Mapped {col_name} head:\n{mapped_series.head().to_string()}")

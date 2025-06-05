@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 import multiprocessing # Added to prevent potential NameError if other functions use it
+import os
 
 # Helper function to parse interval rule strings specifically for fake signature generation needs
 def _parse_interval_rule_string_for_fake_sigs(rule_str):
@@ -31,11 +32,12 @@ def _parse_interval_rule_string_for_fake_sigs(rule_str):
     return lower_bound, upper_bound, lower_inclusive, upper_inclusive, group_index
 
 # Helper function to apply parsed interval rules to a data series
-def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series):
+def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=None):
     """
     Applies interval mapping rules to a pandas Series.
-    data_series: pd.Series of data to be mapped (expected to be numeric or convertible to numeric).
+    data_series: pd.Series of data to be mapped (can be numeric or datetime for Date_scalar).
     rule_series: pd.Series of interval rule strings (e.g., "(0,10]=0").
+    feature_name: Name of the feature, used to determine special handling (e.g., 'Date_scalar').
     Returns a pd.Series with mapped group indices.
     """
     parsed_rules = []
@@ -43,7 +45,7 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series):
         try:
             parsed_rules.append(_parse_interval_rule_string_for_fake_sigs(rule_str))
         except ValueError as e:
-            # print(f"DEBUG_FAKE_SIG_MAP: Skipping unparsable rule: {rule_str}. Error: {e}")
+            # print(f"DEBUG_FAKE_SIG_MAP: Skipping unparsable rule for {feature_name or data_series.name}: {rule_str}. Error: {e}")
             pass 
     
     if not parsed_rules:
@@ -52,12 +54,19 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series):
     try:
         parsed_rules.sort(key=lambda x: (x[0], x[1]))
     except TypeError:
-        print(f"Warning: Could not sort parsed_rules. Proceeding without sorting.")
+        print(f"Warning: Could not sort parsed_rules for {feature_name or data_series.name}. Proceeding without sorting.")
 
     mapped_values = pd.Series(np.nan, index=data_series.index, dtype=np.float64)
     
-    # Ensure data_series is numeric for comparison
-    data_to_map = pd.to_numeric(data_series, errors='coerce')
+    data_to_map = data_series
+    if feature_name == 'Date_scalar' and pd.api.types.is_datetime64_any_dtype(data_series):
+        # print(f"DEBUG_FAKE_SIG_MAP: Converting Date_scalar (datetime) to numeric timestamp for mapping.")
+        # Convert datetime to Unix timestamp (seconds, float) for comparison with numeric rules
+        data_to_map = data_series.apply(lambda x: x.timestamp() if pd.notna(x) else np.nan).astype(float)
+    else:
+        # For other features, or if Date_scalar is already numeric for some reason
+        data_to_map = pd.to_numeric(data_series, errors='coerce')
+    
     valid_data_mask = data_to_map.notna()
 
     for lower, upper, l_incl, u_incl, group_idx in parsed_rules:
@@ -228,3 +237,111 @@ def calculate_overall_recall(group_mapped_df, alerts_df, signature_map, relevant
     print(f"Detected Anomalous Alerts (by relevant signatures): {detected_anomalous_alerts}")
 
     return recall
+
+def map_data_using_category_mapping(data_df: pd.DataFrame, category_mapping: dict, file_type: str = None) -> pd.DataFrame:
+    """
+    Maps raw data to grouped data using the provided category_mapping.
+    Handles interval, categorical, and binary features.
+    Uses _apply_numeric_interval_mapping_for_fake_sigs for interval features.
+
+    Args:
+        data_df (pd.DataFrame): Raw data to map (after time_scalar_transfer).
+        category_mapping (dict): Dictionary containing mapping rules for 'interval', 'categorical', 'binary'.
+        file_type (str): The type of the dataset, passed for context if needed (e.g. for Date_scalar handling).
+
+    Returns:
+        pd.DataFrame: DataFrame with mapped group indices.
+    """
+    print("Starting data mapping using category_mapping...")
+    mapped_df_parts = {}
+    data_df_copy = data_df.copy()
+
+    # 1. Interval features
+    interval_rules_df = category_mapping.get('interval')
+    if interval_rules_df is not None and not interval_rules_df.empty:
+        # Convert dict of dicts/lists to DataFrame if necessary
+        if isinstance(interval_rules_df, dict):
+             try:
+                interval_rules_df = pd.DataFrame(interval_rules_df)
+             except Exception as e:
+                print(f"Error converting interval_rules_df from dict to DataFrame: {e}")
+                # Fallback or re-raise, depending on how critical this is
+                # For now, assume it might be empty or in a format that _apply_numeric... can handle if passed as Series later
+
+        print(f"  Mapping interval features: {list(interval_rules_df.columns)}")
+        for col_name in interval_rules_df.columns:
+            if col_name in data_df_copy.columns:
+                data_series = data_df_copy[col_name]
+                rule_series = interval_rules_df[col_name]
+                # Pass col_name for Date_scalar datetime to numeric conversion
+                mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=col_name)
+                mapped_df_parts[col_name] = mapped_series
+                # print(f"    Mapped {col_name}. NaN count: {mapped_series.isnull().sum()}")
+            else:
+                print(f"    Warning: Interval column '{col_name}' not in data_df.")
+    else:
+        print("  No interval mapping rules found or rules are empty.")
+
+    # 2. Categorical features
+    categorical_rules = category_mapping.get('categorical')
+    if categorical_rules is not None and not categorical_rules.empty:
+        if isinstance(categorical_rules, dict): # Common case: dict of dicts {col: {val: group}}
+            print(f"  Mapping categorical features: {list(categorical_rules.keys())}")
+            for col_name, mapping_dict in categorical_rules.items():
+                if col_name in data_df_copy.columns:
+                    # Ensure mapping_dict keys are of the same type as data_df_copy[col_name] or handle conversion
+                    # For safety, convert data series to string if keys in mapping_dict are strings
+                    # This is a common pattern if original values are diverse (e.g. numbers, strings for same category)
+                    if any(isinstance(k, str) for k in mapping_dict.keys()):
+                        mapped_df_parts[col_name] = data_df_copy[col_name].astype(str).map(mapping_dict)
+                    else: # Assume direct mapping is fine
+                        mapped_df_parts[col_name] = data_df_copy[col_name].map(mapping_dict)
+                    # print(f"    Mapped {col_name}. NaN count: {mapped_df_parts[col_name].isnull().sum()}")
+                else:
+                    print(f"    Warning: Categorical column '{col_name}' not in data_df.")
+        elif isinstance(categorical_rules, pd.DataFrame): # if it's already a df {col: series_of_rules}
+             print(f"  Mapping categorical features from DataFrame: {list(categorical_rules.columns)}")
+             for col_name in categorical_rules.columns:
+                if col_name in data_df_copy.columns:
+                    # Assuming categorical_rules[col_name] is a Series {original_value: group_id}
+                    # This format is less common for 'categorical' from Main_Association_Rule.py (usually dict)
+                    # Adapting for a direct map if rule_series is value -> group_id
+                    rule_map = pd.Series(categorical_rules[col_name].values, index=categorical_rules[col_name].index).to_dict()
+                    mapped_df_parts[col_name] = data_df_copy[col_name].map(rule_map)
+                else:
+                    print(f"    Warning: Categorical column '{col_name}' not in data_df.")
+    else:
+        print("  No categorical mapping rules found.")
+
+    # 3. Binary features (often direct mapping or boolean to int)
+    binary_rules = category_mapping.get('binary')
+    if binary_rules is not None and not binary_rules.empty:
+        if isinstance(binary_rules, dict): # {col: {val: group}} or {col: True/False -> 0/1 mapping}
+            print(f"  Mapping binary features: {list(binary_rules.keys())}")
+            for col_name, mapping_dict_or_val in binary_rules.items():
+                if col_name in data_df_copy.columns:
+                    if isinstance(mapping_dict_or_val, dict): # e.g. {True: 1, False: 0} or specific values
+                        mapped_df_parts[col_name] = data_df_copy[col_name].map(mapping_dict_or_val)
+                    else: #  Direct conversion like boolean to int (True->1, False->0)
+                          # This part is tricky if rules are not explicit. Assuming direct map if not dict.
+                          # For more robust binary, rules should be explicit e.g. {True:1, False:0}
+                          # If binary_rules[col_name] is just a placeholder or not a map, this might be an issue.
+                          # Defaulting to astype(int) for boolean columns if no explicit map.
+                        if data_df_copy[col_name].dtype == bool:
+                             mapped_df_parts[col_name] = data_df_copy[col_name].astype(int)
+                        else: # If not boolean and not a dict, it's unclear how to map
+                             print(f"    Warning: Binary column '{col_name}' has no clear mapping rule (not a dict, not bool type). Skipping.")
+                    # print(f"    Mapped {col_name}. NaN count: {mapped_df_parts[col_name].isnull().sum() if col_name in mapped_df_parts else 'N/A'}")
+                else:
+                    print(f"    Warning: Binary column '{col_name}' not in data_df.")
+    else:
+        print("  No binary mapping rules found.")
+
+    if not mapped_df_parts:
+        print("Warning: No data was mapped. Returning an empty DataFrame.")
+        return pd.DataFrame(index=data_df_copy.index)
+
+    final_mapped_df = pd.DataFrame(mapped_df_parts, index=data_df_copy.index)
+    print(f"Data mapping complete. Mapped DataFrame shape: {final_mapped_df.shape}")
+    # print(f"Mapped columns with NaN counts:\n{final_mapped_df.isnull().sum()}")
+    return final_mapped_df
