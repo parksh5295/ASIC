@@ -57,7 +57,7 @@ def _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feat
 
     try:
         # Sort by lower bound, then upper bound to handle overlapping rules if any (though usually not expected for well-defined bins)
-    parsed_rules.sort(key=lambda x: (x[0], x[1]))
+        parsed_rules.sort(key=lambda x: (x[0], x[1]))
     except TypeError:
         print(f"Warning: Could not sort parsed_rules for {feature_name or data_series.name}. Proceeding without sorting.")
 
