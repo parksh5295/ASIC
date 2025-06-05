@@ -180,7 +180,7 @@ def main(args):
 
         if fake_alerts_df.empty:
             logger.info("No alerts generated from attack-free data with fake FP signatures.")
-                else:
+        else:
             logger.info(f"Generated {len(fake_alerts_df)} alerts from attack-free data using fake FP signatures.")
             fake_fp_scores_df = calculate_fp_scores(
                 fake_alerts_df, mapped_attack_free_df, file_type=args.file_type,
