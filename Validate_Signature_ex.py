@@ -5,6 +5,7 @@ import argparse
 import logging
 import os
 import sys
+import ast
 from datetime import datetime
 
 # Set the project root path based on the path of the current script (adjust as needed)
@@ -44,28 +45,104 @@ BASE_DATA_PATH = os.path.join(PROJECT_ROOT, "Dataset_Paral", "train_test_data")
 
 
 def load_signatures(file_type, config_name_prefix):
-    sig_file_name = f"{file_type}_{config_name_prefix}.json"
-    sig_file_path = os.path.join(BASE_SIGNATURE_PATH, file_type, sig_file_name)
-    logger.info(f"Loading signatures from: {sig_file_path}")
-    if not os.path.exists(sig_file_path):
-        logger.error(f"Signature file not found: {sig_file_path}")
+    sig_file_name_json = f"{file_type}_{config_name_prefix}.json"
+    sig_file_path_json = os.path.join(BASE_SIGNATURE_PATH, file_type, sig_file_name_json)
+    
+    signatures = None
+    
+    logger.info(f"Attempting to load signatures from JSON: {sig_file_path_json}")
+    if os.path.exists(sig_file_path_json):
+        signatures = load_from_json(sig_file_path_json)
+        if signatures is not None:
+            logger.info(f"Successfully loaded signatures from JSON: {sig_file_path_json}")
+        else:
+            logger.warning(f"Failed to load signatures from existing JSON file: {sig_file_path_json}")
+    else:
+        logger.info(f"JSON signature file not found: {sig_file_path_json}")
+
+    if signatures is None:
+        sig_file_name_csv = f"{file_type}_{config_name_prefix}.csv"
+        sig_file_path_csv = os.path.join(BASE_SIGNATURE_PATH, file_type, sig_file_name_csv)
+        logger.info(f"Attempting to load signatures from CSV: {sig_file_path_csv}")
+        if os.path.exists(sig_file_path_csv):
+            try:
+                df = pd.read_csv(sig_file_path_csv)
+                if not df.empty and 'Verified_Signatures' in df.columns:
+                    # Assuming the relevant data is in the first row
+                    verified_signatures_str = df['Verified_Signatures'].iloc[0]
+                    if pd.isna(verified_signatures_str):
+                        logger.error(f"'Verified_Signatures' content is NaN in CSV: {sig_file_path_csv}")
+                    else:
+                        try:
+                            parsed_list = ast.literal_eval(verified_signatures_str)
+                            if isinstance(parsed_list, list):
+                                extracted_signatures = []
+                                for idx, item in enumerate(parsed_list):
+                                    if isinstance(item, dict) and \
+                                       'signature_name' in item and \
+                                       isinstance(item['signature_name'], dict) and \
+                                       'Signature_dict' in item['signature_name']:
+                                        
+                                        rule_dict = item['signature_name']['Signature_dict']
+                                        # Use a generated ID for now, or look for a specific field if available
+                                        # For example, if item['signature_name'] has an 'id' or 'name' field
+                                        sig_id = item['signature_name'].get('name', f"csv_sig_{idx}") 
+                                        extracted_signatures.append({'id': sig_id, 'rule_dict': rule_dict})
+                                    else:
+                                        logger.warning(f"Skipping item from CSV due to unexpected structure: {item}")
+                                signatures = extracted_signatures
+                                logger.info(f"Successfully extracted {len(signatures)} signatures from CSV: {sig_file_path_csv}")
+                            else:
+                                logger.error(f"Parsed 'Verified_Signatures' from CSV is not a list: {sig_file_path_csv}")
+                        except (ValueError, SyntaxError) as e:
+                            logger.error(f"Error parsing 'Verified_Signatures' string from CSV {sig_file_path_csv}: {e}")
+                else:
+                    logger.error(f"CSV file {sig_file_path_csv} is empty or 'Verified_Signatures' column is missing.")
+            except Exception as e:
+                logger.error(f"Error reading CSV file {sig_file_path_csv}: {e}")
+        else:
+            logger.info(f"CSV signature file not found: {sig_file_path_csv}")
+
+    if signatures is None:
+        logger.error(f"Failed to load signatures from both JSON and CSV for prefix: {config_name_prefix}")
         return None
-    signatures = load_from_json(sig_file_path)
+
+    # Common processing for signatures loaded from either JSON or CSV
     if not isinstance(signatures, list):
         if isinstance(signatures, dict) and all(isinstance(s_val, dict) for s_val in signatures.values()):
             logger.info("Attempting to convert signatures from dict of dicts to list of dicts...")
             signatures_list = []
             for s_id, s_content in signatures.items():
-                s_content['id'] = s_id
+                s_content['id'] = s_id # Assign or overwrite 'id'
+                # Ensure 'rule_dict' exists, if s_content is supposed to be the rule itself
+                if 'rule_dict' not in s_content: 
+                     # This case implies the dict itself is the rule_dict
+                     # This might happen if the JSON format was { "id1": {"rule_key": "val"}, ...}
+                     # And we expect {"id": "id1", "rule_dict": {"rule_key": "val"}}
+                     # However, the original code appends s_content directly, assuming it's already structured
+                     # correctly or that rule_dict is a primary key within it.
+                     # For safety, if 'rule_dict' is not in s_content, we might need to decide if s_content *is* the rule_dict
+                     # This part of logic is from the original code for JSON dict-of-dicts.
+                     # If CSV always produces list of {'id': X, 'rule_dict': Y}, this dict-of-dicts branch is only for JSON.
+                     pass # Assuming s_content structure is what's expected or 'rule_dict' is already a key within.
                 signatures_list.append(s_content)
             signatures = signatures_list
             logger.info(f"Successfully converted signatures to list format. Count: {len(signatures)}")
         else:
             logger.error("Signatures are not in the expected list format and could not be converted.")
             return None
-    if not all(isinstance(s, dict) and 'id' in s and 'rule_dict' in s for s in signatures):
-        logger.error("Signatures are not in the expected format (list of dicts with 'id' and 'rule_dict').")
+            
+    # Final validation
+    if not signatures: # Check if signatures list is empty after all processing
+        logger.error("No signatures were successfully loaded or extracted.")
         return None
+
+    if not all(isinstance(s, dict) and 'id' in s and 'rule_dict' in s for s in signatures):
+        logger.error("Signatures are not in the expected final format (list of dicts with 'id' and 'rule_dict').")
+        logger.debug(f"Problematic signatures data: {signatures[:5]}") # Log first few items for debugging
+        return None
+        
+    logger.info(f"Final loaded signature count: {len(signatures)}")
     return signatures
 
 
