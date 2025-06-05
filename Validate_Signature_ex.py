@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import time
 import multiprocessing # Ensure multiprocessing is imported
-from Dataset_Choose_Rule.association_data_choose import file_path_line_signatures
+from Dataset_Choose_Rule.association_data_choose import file_path_line_signatures, file_path_line_association
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut
 from definition.Anomal_Judgment import anomal_judgment_label, anomal_judgment_nonlabel
 from utils.time_transfer import time_scalar_transfer
@@ -212,7 +212,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
     try:
         # 1. Load data
         print("Loading data for fake signature generation...")
-        file_path, _ = file_path_line_signatures(file_type, file_number)
+        file_path, _ = file_path_line_association(file_type, file_number)
         full_data = file_cut(file_type, file_path, 'all') # Load all data
 
         # --- Add time scalar transfer step --- 
@@ -389,7 +389,8 @@ def main():
     # 1. Data loading
     start = time.time()
 
-    file_path, file_number = file_path_line_signatures(file_type, file_number)
+    file_path, file_number = file_path_line_association(file_type, file_number)
+    print(f"INFO: Loading data using 'file_path_line_association' for {file_type} (typically TRAIN data).")
     # cut_type = str(input("Enter the data cut type: "))
     cut_type = 'all'
     data = file_cut(file_type, file_path, cut_type)
