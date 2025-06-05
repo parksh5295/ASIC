@@ -31,10 +31,78 @@ import os
 import random # Add random import 
 from datetime import datetime, timedelta # Add datetime import 
 from copy import deepcopy
+import re
 
 KNOWN_FP_FILE = "known_high_fp_signatures.json" # Known FP signature save file
 RECALL_CONTRIBUTION_THRESHOLD = 0.1 # Threshold for whitelisting signatures
 NUM_FAKE_FP_SIGNATURES = 3 # Number of fake FP signatures to inject
+
+# Helper function to parse interval rule strings specifically for fake signature generation needs
+# This avoids modifying the global separate_group_mapping.py
+def _parse_interval_rule_string_for_fake_sigs(rule_str):
+    """
+    Parses an interval rule string like "(L, U]=G" or "[L, U)=G".
+    Returns (lower_bound, upper_bound, lower_inclusive, upper_inclusive, group_index).
+    Handles '-inf' as lower bound.
+    """
+    rule_str = str(rule_str).strip() # Ensure it's a string
+    match = re.match(r'([(\[])\s*(-inf|[-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\s*([)\]])\s*=\s*(\d+)', rule_str)
+    if not match:
+        # print(f"DEBUG_FAKE_SIG_MAP: Cannot parse interval rule string: {rule_str}")
+        raise ValueError(f"Cannot parse interval rule string for fake sigs: {rule_str}")
+
+    lower_bracket, lower_val_str, upper_val_str, upper_bracket, group_num_str = match.groups()
+    lower_bound = -np.inf if lower_val_str == '-inf' else float(lower_val_str)
+    upper_bound = float(upper_val_str)
+    lower_inclusive = (lower_bracket == '[')
+    upper_inclusive = (upper_bracket == ']')
+    group_index = int(group_num_str)
+    return lower_bound, upper_bound, lower_inclusive, upper_inclusive, group_index
+
+# Helper function to apply parsed interval rules to a numeric data series
+def _apply_numeric_interval_mapping_for_fake_sigs(numeric_data_series, rule_series):
+    """
+    Applies interval mapping rules to a numeric pandas Series.
+    numeric_data_series: pd.Series of numeric data to be mapped.
+    rule_series: pd.Series of interval rule strings (e.g., "(0,10]=0").
+    Returns a pd.Series with mapped group indices.
+    """
+    parsed_rules = []
+    for rule_str in rule_series.dropna():
+        try:
+            parsed_rules.append(_parse_interval_rule_string_for_fake_sigs(rule_str))
+        except ValueError:
+            # print(f"DEBUG_FAKE_SIG_MAP: Skipping unparsable rule for data mapping: {rule_str}")
+            pass # Skip rules that can't be parsed by our helper
+    
+    if not parsed_rules:
+        # print(f"DEBUG_FAKE_SIG_MAP: No valid rules parsed for column {numeric_data_series.name}. Returning NaNs.")
+        return pd.Series(np.nan, index=numeric_data_series.index, dtype=np.float64)
+
+    # Sort rules by lower bound, then upper bound (optional, but good practice)
+    parsed_rules.sort(key=lambda x: (x[0], x[1]))
+
+    mapped_values = pd.Series(np.nan, index=numeric_data_series.index, dtype=np.float64)
+    
+    # Ensure numeric_data_series is indeed numeric, coercing errors
+    data_to_map = pd.to_numeric(numeric_data_series, errors='coerce')
+    valid_data_mask = data_to_map.notna()
+
+    for lower, upper, l_incl, u_incl, group_idx in parsed_rules:
+        condition = pd.Series(True, index=data_to_map.index)
+        if l_incl:
+            condition &= (data_to_map >= lower)
+        else:
+            condition &= (data_to_map > lower)
+        if u_incl:
+            condition &= (data_to_map <= upper)
+        else:
+            condition &= (data_to_map < upper)
+        
+        final_condition = condition & valid_data_mask
+        mapped_values.loc[final_condition] = group_idx
+        
+    return mapped_values
 
 # Helper function for parallel calculation of single signature contribution
 def _calculate_single_signature_contribution(sig_id, alerts_df_subset_cols, anomalous_indices_set, total_anomalous_alerts_count):
@@ -276,65 +344,76 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
         print(f"Filtered for ANOMALOUS data. Rows obtained: {normal_data_df.shape[0]}")
 
         # 4. Map the ANOMALOUS data (using existing mapping info).
-        #    Variable names `normal_data_to_map` and `normal_mapped_df` are INTENTIONALLY PRESERVED.
-        print("Mapping the ANOMALOUS data (variable names kept as original)...")
-        normal_data_to_map = normal_data_df.drop(columns=['label'], errors='ignore') # `normal_data_df` now holds anomalous data
+        normal_data_to_map = normal_data_df.drop(columns=['label'], errors='ignore')
 
-        '''
-        # === START DEBUG: Check category_mapping before map_intervals_to_groups ===
-        print("DEBUG: Checking category_mapping for Date_scalar and StartTime_scalar before map_intervals_to_groups:")
-        if isinstance(category_mapping, dict) and 'interval' in category_mapping:
-            interval_mapping = category_mapping['interval']
-            if isinstance(interval_mapping, pd.DataFrame):
-                if 'Date_scalar' in interval_mapping.columns:
-                    print("DEBUG: category_mapping['interval']['Date_scalar']:")
-                    print(interval_mapping['Date_scalar'].to_string())
-                else:
-                    print("DEBUG: 'Date_scalar' not found in category_mapping['interval'] columns.")
-                if 'StartTime_scalar' in interval_mapping.columns:
-                    print("DEBUG: category_mapping['interval']['StartTime_scalar']:")
-                    print(interval_mapping['StartTime_scalar'].to_string())
-                else:
-                    print("DEBUG: 'StartTime_scalar' not found in category_mapping['interval'] columns.")
-            elif isinstance(interval_mapping, dict): # If it's a dict of Series/lists
-                if 'Date_scalar' in interval_mapping:
-                    print("DEBUG: category_mapping['interval']['Date_scalar']:")
-                    print(str(interval_mapping['Date_scalar']))
-                else:
-                    print("DEBUG: 'Date_scalar' not found as a key in category_mapping['interval'].")
-                if 'StartTime_scalar' in interval_mapping:
-                    print("DEBUG: category_mapping['interval']['StartTime_scalar']:")
-                    print(str(interval_mapping['StartTime_scalar']))
-                else:
-                    print("DEBUG: 'StartTime_scalar' not found as a key in category_mapping['interval'].")
+        # --- START: Special handling for Date_scalar and StartTime_scalar ---
+        mapped_date_scalar = None
+        mapped_starttime_scalar = None
+        cols_to_process_separately = ['Date_scalar', 'StartTime_scalar']
+        remaining_cols_for_map_intervals = list(normal_data_to_map.columns)
+        temp_category_mapping_interval = category_mapping['interval'].copy() # Work on a copy
+
+        for col_name in cols_to_process_separately:
+            if col_name in normal_data_to_map.columns and col_name in temp_category_mapping_interval.columns:
+                print(f"INFO: Separately mapping '{col_name}' for fake signature generation.")
+                # Ensure data is numeric before passing to our helper
+                data_series = pd.to_numeric(normal_data_to_map[col_name], errors='coerce')
+                rule_series = temp_category_mapping_interval[col_name]
+                mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series)
+                
+                if col_name == 'Date_scalar':
+                    mapped_date_scalar = mapped_series.rename('Date_scalar_mapped') # Rename to avoid clash if needed, though we drop original
+                elif col_name == 'StartTime_scalar':
+                    mapped_starttime_scalar = mapped_series.rename('StartTime_scalar_mapped')
+                
+                # Remove from data and category_mapping before passing to map_intervals_to_groups
+                if col_name in remaining_cols_for_map_intervals: # Should always be true here
+                    remaining_cols_for_map_intervals.remove(col_name)
+                if col_name in temp_category_mapping_interval.columns: # Should always be true here
+                    temp_category_mapping_interval = temp_category_mapping_interval.drop(columns=[col_name])
             else:
-                print("DEBUG: category_mapping['interval'] is not a DataFrame or dict.")
+                print(f"INFO: Column '{col_name}' not found in data or category_mapping for separate processing.")
+
+        # Prepare data and category_mapping for the original map_intervals_to_groups
+        data_for_map_intervals = normal_data_to_map[remaining_cols_for_map_intervals]
+        # Create a new category_mapping dict for map_intervals_to_groups to use, with the modified interval part
+        category_mapping_for_map_intervals = {
+            'interval': temp_category_mapping_interval,
+            'categorical': category_mapping.get('categorical', pd.DataFrame()),
+            'binary': category_mapping.get('binary', pd.DataFrame())
+        }
+        # --- END: Special handling ---
+
+        # Call original map_intervals_to_groups for remaining columns
+        print(f"Mapping remaining interval columns using original map_intervals_to_groups: {temp_category_mapping_interval.columns.tolist()}")
+        if not data_for_map_intervals.empty and not temp_category_mapping_interval.empty:
+            other_mapped_df, _ = map_intervals_to_groups(data_for_map_intervals, category_mapping_for_map_intervals, data_list, regul='N')
         else:
-            print("DEBUG: category_mapping is not a dict or 'interval' key is missing.")
-        # === END DEBUG ===
+            print("INFO: No remaining columns or interval rules for map_intervals_to_groups. Creating empty DataFrame for other_mapped_df.")
+            other_mapped_df = pd.DataFrame(index=normal_data_to_map.index) # Ensure index compatibility
 
-        # === START WORKAROUND: Drop scalar time columns as they cause all NaNs due to missing mapping rules ===
-        # category_mapping loaded from mapped_info.csv currently lacks rules for Date_scalar and StartTime_scalar.
-        # This causes map_intervals_to_groups to convert them to all NaNs.
-        # Dropping them for now from the input to map_intervals_to_groups to allow fake signature generation to proceed.
-        # A proper fix involves regenerating mapped_info.csv from Main_Association_Rule.py to include these columns.
-        columns_to_drop_workaround = ['Date_scalar', 'StartTime_scalar']
-        actual_columns_to_drop_workaround = [col for col in columns_to_drop_workaround if col in normal_data_to_map.columns]
-        if actual_columns_to_drop_workaround:
-            print(f"INFO: WORKAROUND: Dropping columns {actual_columns_to_drop_workaround} from data before mapping in fake signature generation process.")
-            normal_data_to_map = normal_data_to_map.drop(columns=actual_columns_to_drop_workaround, errors='ignore')
-        # === END WORKAROUND ===
-        '''
+        # Combine manually mapped scalar time columns with other_mapped_df
+        final_mapped_parts = []
+        if other_mapped_df.shape[1] > 0:
+             final_mapped_parts.append(other_mapped_df)
+        if mapped_date_scalar is not None:
+            # Use original name for consistency if no clash, or new name if preferred
+            final_mapped_parts.append(mapped_date_scalar.rename('Date_scalar')) 
+        if mapped_starttime_scalar is not None:
+            final_mapped_parts.append(mapped_starttime_scalar.rename('StartTime_scalar'))
+        
+        if final_mapped_parts:
+            normal_mapped_df = pd.concat(final_mapped_parts, axis=1)
+        else: # Should not happen if there was any data to map
+            print("Warning: All parts for final mapped df are empty.")
+            normal_mapped_df = pd.DataFrame(index=normal_data_to_map.index)
 
-        normal_mapped_df, _ = map_intervals_to_groups(normal_data_to_map, category_mapping, data_list, regul='N')
-        print(f"Shape of mapped ANOMALOUS data: {normal_mapped_df.shape}")
-
-        # === START DEBUG: Check normal_mapped_df before dropna ===
-        print("DEBUG: normal_mapped_df.head() before dropna:")
-        print(normal_mapped_df.head().to_string())
-        print("DEBUG: normal_mapped_df.isnull().sum() before dropna:")
-        print(normal_mapped_df.isnull().sum().to_string())
-        # === END DEBUG ===
+        print(f"Shape of combined mapped ANOMALOUS data: {normal_mapped_df.shape}")
+        # DEBUG: Check normal_mapped_df before dropna (this was a previous debug point, can be re-enabled if needed)
+        # print("DEBUG: normal_mapped_df.head() before dropna:")
+        # print(normal_mapped_df.head().to_string())
+        # print("DEBUG: normal_mapped_df.isnull().sum() before dropna:")
+        # print(normal_mapped_df.isnull().sum().to_string())
 
         # --- Handle NaN values from the (now anomalous) mapped data --- 
         rows_before_dropna = normal_mapped_df.shape[0]
