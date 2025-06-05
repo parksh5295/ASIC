@@ -313,16 +313,46 @@ def main(args):
 
     logger.info("--- Generating Fake FP Signatures ---")
     
-    # We need the full category_mapping to generate fake signatures correctly
-    fake_sigs_list, _, _, _, _, _ = generate_fake_fp_signatures(
-        file_type=args.file_type,
-        file_number=args.file_number,
-        category_mapping=category_mapping,
-        data_list=[], # No longer used for mapping here
-        association_method=args.association,
-        association_metric=args.association_metric,
-        num_fake_signatures=args.num_fake_signatures
-    )
+    # User request: Temporarily disable auto-generation and use hardcoded signatures to ensure warnings are raised.
+    logger.info("Temporarily disabling automatic fake signature generation and using hardcoded ones.")
+    
+    # fake_sigs_list, _, _, _, _, _ = generate_fake_fp_signatures(
+    #     file_type=args.file_type,
+    #     file_number=args.file_number,
+    #     category_mapping=category_mapping,
+    #     data_list=[], # No longer used for mapping here
+    #     association_method=args.association,
+    #     association_metric=args.association_metric,
+    #     num_fake_signatures=args.num_fake_signatures
+    # )
+
+    # List of hardcoded fake signatures that are likely to cause high FPs
+    # These signatures do not use 'Date_scalar'.
+    fake_sigs_list = [
+        {
+            'id': 'fake_fp_sig_1',
+            'name': 'Fake FP - High Freq TargetIP',
+            'rule_dict': {'TargetIP': 5}
+        },
+        {
+            'id': 'fake_fp_sig_2',
+            'name': 'Fake FP - High Freq TransactionID',
+            'rule_dict': {'TransactionID': 1}
+        },
+        {
+            'id': 'fake_fp_sig_3',
+            'name': 'Fake FP - Very Common Combo',
+            'rule_dict': {'TargetIP': 5, 'TransactionID': 1}
+        },
+        {
+            'id': 'fake_fp_sig_4',
+            'name': 'Fake FP - Generic Attack',
+            # Rules to target specific groups in the 'Attack' column (values are examples)
+            'rule_dict': {'Attack': 4}
+        }
+    ]
+    # Update counts to reflect manually created lists
+    args.num_fake_signatures = len(fake_sigs_list)
 
     if fake_sigs_list:
         logger.info(f"Generated {len(fake_sigs_list)} fake FP signatures.")
