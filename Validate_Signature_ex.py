@@ -149,20 +149,17 @@ def load_signatures(file_type, config_name_prefix):
     return signatures
 
 
-def load_category_mapping(file_type, config_name_prefix):
-    if "signature" in config_name_prefix:
-        mapping_config_prefix = config_name_prefix.replace("_signature_", "_category_mapping_")
-    else:
-        mapping_config_prefix = config_name_prefix.replace("signature", "category_mapping") if "signature" in config_name_prefix else f"{config_name_prefix}_category_mapping"
-    map_file_name = f"{file_type}_{mapping_config_prefix}.json"
+def load_category_mapping(file_type, file_number):
+    map_file_name = f"{file_type}_{file_number}_mapped_info.csv"
     map_file_path = os.path.join(BASE_MAPPING_PATH, file_type, map_file_name)
     
-    logger.info(f"Attempting to load category mapping from: {map_file_path}")
+    logger.info(f"Attempting to load category mapping from CSV: {map_file_path}")
 
     if not os.path.exists(map_file_path):
-        logger.error(f"JSON Mapping file not found: {map_file_path}")
+        logger.error(f"CSV Mapping file not found: {map_file_path}")
         return None
 
+    '''
     mapping_data = load_from_json(map_file_path)
     
     if mapping_data and 'interval' in mapping_data and isinstance(mapping_data['interval'], dict):
@@ -174,6 +171,46 @@ def load_category_mapping(file_type, config_name_prefix):
         except Exception as e:
             logger.error(f"Failed to convert 'interval' mapping to DataFrame: {e}")
     return mapping_data
+    '''
+
+    try:
+        df_mapping = pd.read_csv(map_file_path)
+        if df_mapping.empty:
+            logger.error(f"Mapping CSV file is empty: {map_file_path}")
+            return None
+        
+        category_mapping = {
+            'interval': {},
+            # Add other types like 'categorical', 'binary' if they are also expected from CSV
+            # For now, focusing on 'interval' based on the provided CSV structure
+        }
+        
+        for column in df_mapping.columns:
+            # Collect non-NaN mapping strings for the current column
+            # The Series constructor will automatically handle NaN values by not including them if not told otherwise
+            # and will keep the original index if needed, though here we just want the values.
+            column_mappings = df_mapping[column].dropna().astype(str).tolist()
+            if column_mappings: # Only add if there are actual mapping entries
+                category_mapping['interval'][column] = pd.Series(column_mappings)
+            else:
+                logger.warning(f"No valid mapping entries found for column '{column}' in {map_file_path}")
+
+        if not category_mapping['interval']:
+            logger.error(f"No interval mappings were extracted from {map_file_path}")
+            return None # Or return an empty structure based on downstream requirements
+
+        # Convert the dictionary of Series to a DataFrame for 'interval'
+        # This matches the structure expected by the rest of the original code if it was loading from JSON dict
+        category_mapping['interval'] = pd.DataFrame(category_mapping['interval'])
+        logger.info(f"Successfully loaded and processed category mapping from {map_file_path}")
+        return category_mapping
+        
+    except pd.errors.EmptyDataError:
+        logger.error(f"Mapping CSV file is empty or unreadable: {map_file_path}")
+        return None
+    except Exception as e:
+        logger.error(f"Error processing mapping CSV file {map_file_path}: {e}")
+        return None
 
 
 def load_dataset(file_type, dataset_name_suffix):
@@ -204,7 +241,7 @@ def main(args):
     signatures = load_signatures(args.file_type, args.config_name_prefix)
     if signatures is None: return
 
-    category_mapping = load_category_mapping(args.file_type, args.config_name_prefix)
+    category_mapping = load_category_mapping(args.file_type, args.file_number)
     if category_mapping is None: return
 
     raw_attack_free_df = load_dataset(args.file_type, args.attack_free_suffix)
