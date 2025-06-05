@@ -104,15 +104,18 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                     logger.info(f"  Mapping interval column: {col_name}")
                     data_series = data_to_map_for_rules[col_name]
                     rule_series = interval_rules_df[col_name]
+                    
                     # --- DEBUG LOGGING: Before _apply_numeric_interval_mapping_for_fake_sigs ---
-                    if col_name in ['Date_scalar', 'StartTime_scalar']:
-                        logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input data_series (sample): {data_series.dropna().unique()[:5]}, dtype: {data_series.dtype}, NaNs: {data_series.isnull().sum()}")
-                        logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input rule_series (unique): {rule_series.dropna().unique().tolist()}")
+                    logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input data_series (sample): {data_series.dropna().unique()[:5]}, dtype: {data_series.dtype}, NaNs: {data_series.isnull().sum()}")
+                    logger.info(f"    DEBUG_FAKE_SIGS: For {col_name} - Input rule_series (unique sample): {rule_series.dropna().unique()[:5].tolist()}")
                     # --- END DEBUG LOGGING ---
+                    
                     mapped_series = _apply_numeric_interval_mapping_for_fake_sigs(data_series, rule_series, feature_name=col_name)
                     all_mapped_series[col_name] = mapped_series
-                    if col_name in ['Date_scalar', 'StartTime_scalar']:
-                         logger.info(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}, Mapped unique values (sample): {mapped_series.dropna().unique()[:5]}")
+                    
+                    # --- DEBUG LOGGING: After _apply_numeric_interval_mapping_for_fake_sigs ---
+                    logger.info(f"    DEBUG_FAKE_SIGS: Mapped {col_name} NaNs: {mapped_series.isnull().sum()}, Mapped unique values (sample): {mapped_series.dropna().unique()[:5]}")
+                    # --- END DEBUG LOGGING ---
                 else:
                     logger.warning(f"  Warning: Interval rule column '{col_name}' not in data_to_map_for_rules.")
         else:
