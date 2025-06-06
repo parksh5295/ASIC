@@ -65,6 +65,17 @@ def calculate_performance_metrics(alerts_df, ground_truth_df):
     # Indices of actual attacks from the ground truth
     actual_positives_indices = set(ground_truth_df[ground_truth_df['label'] == 1].index)
     
+    # Handle case where no alerts were generated
+    if alerts_df.empty:
+        return {
+            "true_positives": 0,
+            "false_positives": 0,
+            "false_negatives": len(actual_positives_indices),
+            "precision": 0.0,
+            "recall": 0.0,
+            "total_alerts": 0
+        }
+
     # Indices of data points that triggered an alert
     alerted_indices = set(alerts_df['alert_index'])
     
@@ -420,24 +431,27 @@ def main(args):
         fake_sigs_list = [
             {
                 'id': 'fake_fp_sig_1',
-                'name': 'Fake FP - High Freq TargetIP',
-                'rule_dict': {'TransactionID': 1}
+                'name': 'Fake FP - Unmapped TransactionID',
+                # This value (-1) was observed to be very common in logs, making it a great FP candidate.
+                'rule_dict': {'TransactionID': -1}
             },
             {
                 'id': 'fake_fp_sig_2',
-                'name': 'Fake FP - High Freq TransactionID',
-                'rule_dict': {'TransactionID': 2}
+                'name': 'Fake FP - Common TargetIP',
+                # Using a common, low-numbered group ID as a guess for a frequent target IP.
+                'rule_dict': {'TargetIP': 1}
             },
             {
                 'id': 'fake_fp_sig_3',
                 'name': 'Fake FP - Very Common Combo',
-                'rule_dict': {'TargetIP': 5}
+                 # Combining two likely common values to test combined FP detection.
+                'rule_dict': {'TransactionID': -1, 'TargetIP': 1}
             },
             {
                 'id': 'fake_fp_sig_4',
-                'name': 'Fake FP - Generic Attack',
-                # Rules to target specific groups in the 'Attack' column (values are examples)
-                'rule_dict': {'Date_scalar': 21}
+                'name': 'Fake FP - Generic Attack Group',
+                # This targets a specific group of the 'Attack' feature itself, which could be noisy.
+                'rule_dict': {'Attack': 4} # Using the same logic as the DARPA98 fake sig
             }
         ]
     args.num_fake_signatures = len(fake_sigs_list)
