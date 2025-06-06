@@ -407,24 +407,27 @@ def main(args):
         fake_sigs_list = [
             {
                 'id': 'fake_fp_sig_1',
-                'name': 'Fake FP - High Freq TargetIP',
-                'rule_dict': {'TargetIP': 5}
+                'name': 'Fake FP - Common Protocol',
+                # Assuming 'Protocol' is a feature and '1' is a common mapped value (e.g., for TCP).
+                'rule_dict': {'Protocol': 1}
             },
             {
                 'id': 'fake_fp_sig_2',
-                'name': 'Fake FP - High Freq TransactionID',
-                'rule_dict': {'TransactionID': 1}
+                'name': 'Fake FP - Low Group TargetIP',
+                # Assuming '1' is a more common group ID for TargetIP than the previous '5'.
+                'rule_dict': {'TargetIP': 1}
             },
             {
                 'id': 'fake_fp_sig_3',
                 'name': 'Fake FP - Very Common Combo',
-                'rule_dict': {'TargetIP': 5, 'TransactionID': 1}
+                # Combining two likely-noisy conditions.
+                'rule_dict': {'Protocol': 1, 'TargetIP': 1}
             },
             {
                 'id': 'fake_fp_sig_4',
-                'name': 'Fake FP - Generic Attack',
-                # Rules to target specific groups in the 'Attack' column (values are examples)
-                'rule_dict': {'Attack': 4}
+                'name': 'Fake FP - Generic Attack Group',
+                # Targeting group '0' of the Attack feature, which might be a noisy "normal-like" category.
+                'rule_dict': {'Attack': 0}
             }
         ]
     elif args.file_type in ['CICModbus23']:
