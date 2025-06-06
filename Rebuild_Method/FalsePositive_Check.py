@@ -204,9 +204,13 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
     
     # Filter only matched alerts (Use temp_df to filter)
     alerts_df_raw = temp_df[temp_df['_match_sig_id'].notna()].copy()
-    # Join back with original df to get necessary columns like labels
+    # Join back with original df to get necessary columns like labels AND the original index
     # Ensure join works correctly even if index was reset
-    alerts_df_raw = alerts_df_raw.join(df[[col for col in label_cols_present if col in df.columns]], lsuffix='_left')
+    columns_to_join = [col for col in label_cols_present if col in df.columns]
+    if '_original_index' in df.columns:
+        columns_to_join.append('_original_index')
+
+    alerts_df_raw = alerts_df_raw.join(df[columns_to_join], lsuffix='_left')
 
 
     if alerts_df_raw.empty:
