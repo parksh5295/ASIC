@@ -136,6 +136,9 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
             if label_col_name is None: # Use the first found label column
                 label_col_name = col
 
+    # Preserve original index by adding it as a column before any potential resets.
+    df['_original_index'] = df.index
+
     # Ensure input DataFrame index is unique if it's not already
     original_df_index = df.index # Preserve original index
     if not df.index.is_unique:
@@ -214,7 +217,7 @@ def apply_signatures_to_dataset(df, signatures, base_time=datetime(2025, 4, 14, 
 
     # Create final alert DataFrame
     alerts_final = pd.DataFrame({
-        'alert_index': alerts_df_raw.index,
+        'alert_index': alerts_df_raw['_original_index'].values, # Use the preserved original index
         'timestamp': alerts_df_raw['_row_index'].apply(lambda i: base_time + timedelta(seconds=i * 2)),
         'src_ip': [f"192.168.1.{random.randint(1, 254)}" for _ in range(len(alerts_df_raw))],
         'dst_ip': [f"10.0.0.{random.randint(1, 254)}" for _ in range(len(alerts_df_raw))],
