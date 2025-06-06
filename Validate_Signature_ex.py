@@ -49,6 +49,47 @@ BASE_MAPPING_PATH = os.path.join(GRANDPARENT_DIR, "Dataset_Paral", "signature") 
 BASE_DATA_PATH = os.path.join(GRANDPARENT_DIR, "Dataset", "load_dataset") # Corrected path for datasets
 
 
+def calculate_performance_metrics(alerts_df, ground_truth_df):
+    """
+    Calculates TP, FP, FN, Precision, and Recall based on alerts and ground truth.
+    Assumes ground_truth_df has a 'label' column where 1=attack, 0=normal.
+    """
+    if 'label' not in ground_truth_df.columns:
+        logger.error("Ground truth 'label' column not found for performance calculation.")
+        return {
+            "true_positives": 0, "false_positives": 0, "false_negatives": 0,
+            "precision": 0.0, "recall": 0.0, "total_alerts": len(alerts_df)
+        }
+
+    # Indices of actual attacks from the ground truth
+    actual_positives_indices = set(ground_truth_df[ground_truth_df['label'] == 1].index)
+    
+    # Indices of data points that triggered an alert
+    alerted_indices = set(alerts_df['alert_index'])
+    
+    # TP: Alerted indices that are actual positives
+    tp = len(alerted_indices.intersection(actual_positives_indices))
+    
+    # FP: Alerted indices that are NOT actual positives
+    fp = len(alerted_indices) - tp
+    
+    # FN: Actual positive indices that were NOT alerted
+    fn = len(actual_positives_indices) - tp
+    
+    # Precision and Recall
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    
+    return {
+        "true_positives": tp,
+        "false_positives": fp,
+        "false_negatives": fn,
+        "precision": precision,
+        "recall": recall,
+        "total_alerts": len(alerts_df)
+    }
+
+
 def load_signatures(file_type, config_name_prefix):
     sig_file_name_json = f"{file_type}_{config_name_prefix}.json"
     sig_file_path_json = os.path.join(BASE_SIGNATURE_PATH, file_type, sig_file_name_json)
@@ -296,8 +337,9 @@ def main(args):
     """Main execution function."""
     logger.info(f"--- Starting Validation Script with args: {args} ---")
     
-    signatures = load_signatures(args.file_type, args.config_name_prefix)
-    if signatures is None:
+    # --- Step 1: Load all necessary data ---
+    original_signatures = load_signatures(args.file_type, args.config_name_prefix)
+    if original_signatures is None:
         logger.error("Stopping due to failure in loading signatures.")
         return
     
@@ -310,8 +352,26 @@ def main(args):
     if data_df is None or data_df.empty:
         logger.error("Stopping due to failure in loading or processing dataset.")
         return
+        
+    logger.info("--- Mapping raw data to group IDs ---")
+    group_mapped_df = map_data_using_category_mapping(data_df, category_mapping, file_type=args.file_type)
 
-    logger.info("--- Generating Fake FP Signatures ---")
+    if group_mapped_df.empty:
+        logger.error("Mapped data is empty. Cannot proceed with validation.")
+        return
+
+    if 'label' not in group_mapped_df.columns:
+        logger.error("Stopping: Ground truth 'label' column is missing from the loaded dataset.")
+        return
+        
+    # --- Step 2: Calculate Initial Performance (Before FP Removal) ---
+    logger.info("\n--- Evaluating Initial Performance (Original Signatures) ---")
+    initial_alerts_df = apply_signatures_to_dataset(group_mapped_df, original_signatures)
+    initial_performance = calculate_performance_metrics(initial_alerts_df, group_mapped_df)
+    logger.info(f"Initial Performance Metrics: {initial_performance}")
+
+    # --- Step 3: Generate and Add Fake Signatures for FP Analysis ---
+    logger.info("\n--- Generating Fake FP Signatures for Analysis ---")
     
     # User request: Temporarily disable auto-generation and use hardcoded signatures to ensure warnings are raised.
     logger.info("Temporarily disabling automatic fake signature generation and using hardcoded ones.")
@@ -376,24 +436,37 @@ def main(args):
                 'rule_dict': {'Date_scalar': 21}
             }
         ]
-    # Update counts to reflect manually created lists
     args.num_fake_signatures = len(fake_sigs_list)
 
-    if fake_sigs_list:
-        logger.info(f"Generated {len(fake_sigs_list)} fake FP signatures.")
-        signatures.extend(fake_sigs_list)
-    else:
-        logger.warning("Failed to generate any fake FP signatures.")
-
-    logger.info(f"Total signatures for validation (original + fake): {len(signatures)}")
+    if not fake_sigs_list:
+        logger.warning("No fake FP signatures were generated. FP analysis will be limited.")
     
-    logger.info("--- Mapping raw data to group IDs ---")
-    group_mapped_df = map_data_using_category_mapping(data_df, category_mapping, file_type=args.file_type)
+    # Create the combined set of signatures for evaluation
+    combined_signatures = original_signatures + fake_sigs_list
+    logger.info(f"Total signatures for validation (original + fake): {len(combined_signatures)}")
 
-    if group_mapped_df.empty:
-        logger.error("Mapped data is empty. Cannot proceed with validation.")
+    # --- Step 4: Evaluate Combined Signatures and Identify FPs ---
+    logger.info("\n--- Evaluating Combined Signatures to Identify FPs ---")
+    combined_alerts_df = apply_signatures_to_dataset(group_mapped_df, combined_signatures)
+    logger.info(f"Generated {len(combined_alerts_df)} total alerts from combined signatures.")
+
+    if combined_alerts_df.empty:
+        logger.info("No alerts generated from the combined data. Cannot perform FP analysis.")
+        # Output only initial results if no alerts are generated
+        final_report = {
+            "initial_performance": initial_performance,
+            "final_performance": initial_performance, # Same as initial
+            "performance_change": {"precision_change": 0.0, "recall_change": 0.0},
+            "fp_analysis": {
+                "removed_signatures_count": 0,
+                "removed_signatures": []
+            }
+        }
+        logger.info("\n--- FINAL REPORT ---")
+        logger.info(json.dumps(final_report, indent=4))
         return
 
+    '''
     logger.info("\n--- Evaluating Signatures on Mapped Data ---")
     alerts_df = apply_signatures_to_dataset(group_mapped_df, signatures)
 
@@ -414,10 +487,12 @@ def main(args):
 
     # Evaluate all alerts together
     signatures_map = {sig['id']: sig for sig in signatures}
+    '''
+    signatures_map = {sig['id']: sig for sig in combined_signatures}
     evaluated_fp_df = evaluate_false_positives(
-        alerts_df=alerts_df,
+        alerts_df=combined_alerts_df,
         current_signatures_map=signatures_map,
-        attack_free_df=group_mapped_df,
+        attack_free_df=group_mapped_df, # Using full mapped df as stand-in for attack-free
         t0_nra=args.t0_nra, n0_nra=args.n0_nra,
         lambda_haf=args.lambda_haf, lambda_ufp=args.lambda_ufp,
         combine_method=args.combine_method, belief_threshold=args.belief_threshold,
@@ -425,28 +500,65 @@ def main(args):
     )
 
     summary_df = summarize_fp_results(evaluated_fp_df)
-
-    # Log summary for fake signatures that were caught or escaped
-    if fake_sig_ids:
-        # A signature is "caught" if it's marked as a likely false positive
-        caught_fakes_df = summary_df[summary_df['signature_id'].isin(fake_sig_ids) & summary_df['final_likely_fp']]
-        caught_fake_ids = set(caught_fakes_df['signature_id'])
-        
-        escaped_fakes_ids = fake_sig_ids - caught_fake_ids
-        
-        logger.info(f"\n--- FAKE SIGNATURE ANALYSIS ---")
-        logger.info(f"Caught Fake Signatures: {len(caught_fake_ids)} out of {len(fake_sig_ids)}")
-        if caught_fake_ids:
-            logger.info(f"Caught IDs: {list(caught_fake_ids)}")
-        logger.info(f"Escaped Fake Signatures: {len(escaped_fakes_ids)}")
-        if escaped_fakes_ids:
-             logger.info(f"Escaped IDs: {list(escaped_fakes_ids)}")
-
-    logger.info("\n--- OVERALL FP SUMMARY ---")
-    # Convert DataFrame to JSON for logging
-    summary_json = summary_df.to_json(orient='records', indent=4)
-    logger.info(summary_json)
     
+    # Identify signatures to be removed
+    fp_signatures_to_remove_df = summary_df[summary_df['final_likely_fp']]
+    fp_signatures_to_remove_ids = set(fp_signatures_to_remove_df['signature_id'])
+    
+    logger.info(f"\n--- FP ANALYSIS COMPLETE ---")
+    logger.info(f"Identified {len(fp_signatures_to_remove_ids)} signatures as likely FPs to be removed.")
+    if fp_signatures_to_remove_ids:
+        logger.info(f"Removing IDs: {list(fp_signatures_to_remove_ids)}")
+
+    # --- Step 5: Calculate Final Performance (After FP Removal) ---
+    logger.info("\n--- Evaluating Final Performance (Cleaned Signatures) ---")
+    cleaned_signatures = [sig for sig in combined_signatures if sig['id'] not in fp_signatures_to_remove_ids]
+    final_alerts_df = apply_signatures_to_dataset(group_mapped_df, cleaned_signatures)
+    final_performance = calculate_performance_metrics(final_alerts_df, group_mapped_df)
+    logger.info(f"Final Performance Metrics: {final_performance}")
+
+    # --- Step 6: Generate Final Report ---
+    # Get details of removed signatures for the report
+    removed_sig_details = []
+    for _, row in fp_signatures_to_remove_df.iterrows():
+        detail = row.to_dict()
+        # Ensure avg_belief is serializable (it should be float, but good practice)
+        detail['avg_belief'] = float(row['avg_belief'])
+        # Add pre-removal alert count for this signature
+        detail['alerts_before_removal'] = len(combined_alerts_df[combined_alerts_df['signature_id'] == row['signature_id']])
+        removed_sig_details.append(detail)
+    
+    final_report = {
+        "initial_performance": initial_performance,
+        "final_performance": final_performance,
+        "performance_change": {
+            "precision_change": final_performance['precision'] - initial_performance['precision'],
+            "recall_change": final_performance['recall'] - initial_performance['recall']
+        },
+        "fp_analysis": {
+            "removed_signatures_count": len(fp_signatures_to_remove_ids),
+            "removed_signatures": removed_sig_details
+        }
+    }
+
+    logger.info("\n--- FINAL REPORT ---")
+    # Convert DataFrame to JSON for logging
+    report_json = json.dumps(final_report, indent=4)
+    logger.info(report_json)
+    
+    # --- Step 7: Save the report to a file ---
+    logger.info("\n--- Saving Final Report to File ---")
+    report_dir = os.path.join(GRANDPARENT_DIR, "Validation_Result", args.file_type)
+    report_filename = f"report_{args.config_name_prefix}.json"
+    report_filepath = os.path.join(report_dir, report_filename)
+    
+    try:
+        # save_to_json is imported from utils.save_data_io and handles directory creation
+        save_to_json(final_report, report_filepath)
+        logger.info(f"Successfully saved final report to: {report_filepath}")
+    except Exception as e:
+        logger.error(f"Failed to save final report to {report_filepath}. Error: {e}")
+
     logger.info("Validation process finished.")
 
 if __name__ == "__main__":
