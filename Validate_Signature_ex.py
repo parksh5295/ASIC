@@ -34,6 +34,7 @@ from Validation.Validation_util import map_data_using_category_mapping
 from Dataset_Choose_Rule.choose_amount_dataset import file_cut_GEN
 from Dataset_Choose_Rule.Raw_Dataset_infos import Dataset_infos
 from Dataset_Choose_Rule.association_data_choose import file_path_line_association
+from Dataset_Choose_Rule.dtype_optimize import _post_process_specific_datasets
 
 
 # Logging settings
@@ -327,6 +328,9 @@ def load_dataset(file_type):
             # Fallback to simple pd.read_csv if file_cut_GEN fails
             df = pd.read_csv(dataset_path, header=header_row) # Pass header_row here too
             logger.info(f"Successfully loaded {dataset_path} using pd.read_csv fallback.")
+            # IMPORTANT: Apply post-processing in the fallback as well
+            df = _post_process_specific_datasets(df, file_type)
+            logger.info("Applied post-processing to the fallback-loaded data.")
         except Exception as e_pd:
             logger.error(f"Error loading data using pd.read_csv for {dataset_path}: {e_pd}")
             return None
