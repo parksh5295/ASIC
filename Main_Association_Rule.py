@@ -165,6 +165,8 @@ def main():
         data['label'] = data['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
     elif file_type in ['IoTID20', 'IoTID']:
         data['label'] = data['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
+    elif file_type == 'Kitsune':
+        data['label'] = data['Label']
     else:
         # This is a fallback, ensure your file_type is covered above for specific handling
         logger.warning(f"WARNING: Using generic anomal_judgment_label for {file_type}.")

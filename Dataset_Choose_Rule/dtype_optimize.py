@@ -106,37 +106,39 @@ def _post_process_specific_datasets(df, file_type):
     # --- Create binary 'label' column from ground truth ---
     # This is required for performance calculations (precision/recall).
     # The 'label' column should be 1 for an attack, 0 for normal.
-    attack_col = None
-    normal_values = []
+    # THIS LOGIC IS DEPRECATED AND MOVED TO INDIVIDUAL MAIN SCRIPTS (e.g., Validate_Signature_ex.py)
+    # TO ALLOW FOR MORE SPECIFIC, DATASET-DEPENDENT LABELING.
+    # attack_col = None
+    # normal_values = []
 
-    # Identify the name of the column containing attack labels
-    if 'Attack' in df.columns:
-        attack_col = 'Attack'
-    elif 'Label' in df.columns:  # Some datasets use 'Label'
-        attack_col = 'Label'
+    # # Identify the name of the column containing attack labels
+    # if 'Attack' in df.columns:
+    #     attack_col = 'Attack'
+    # elif 'Label' in df.columns:  # Some datasets use 'Label'
+    #     attack_col = 'Label'
 
-    if attack_col:
-        # Define normal traffic identifiers based on the dataset type
-        if file_type in ['DARPA', 'DARPA98']:
-            normal_values = ['normal.']
-        # For most modern CIC datasets, 'Benign' or 'Normal' are standard
-        elif file_type in ['CICModbus23', 'CICModbus', 'CICIDS2017', 'IoTID20', 'CICIDS2018']:
-            normal_values = ['Benign', 'Normal']
+    # if attack_col:
+    #     # Define normal traffic identifiers based on the dataset type
+    #     if file_type in ['DARPA', 'DARPA98']:
+    #         normal_values = ['normal.']
+    #     # For most modern CIC datasets, 'Benign' or 'Normal' are standard
+    #     elif file_type in ['CICModbus23', 'CICModbus', 'CICIDS2017', 'IoTID20', 'CICIDS2018']:
+    #         normal_values = ['Benign', 'Normal']
         
-        if normal_values:
-            # Ensure the attack column is treated as a string for matching
-            df[attack_col] = df[attack_col].astype(str)
-            # Create the binary 'label' column: 1 if not a normal value, 0 otherwise
-            df['label'] = (~df[attack_col].str.strip().isin(normal_values)).astype(int)
-            logger.info(f"Created 'label' column for {file_type} from '{attack_col}'. "
-                        f"Attack count: {df['label'].sum()} / Total rows: {len(df)}")
-        else:
-            logger.warning(f"No definition for 'normal' values for file_type '{file_type}'. Could not create 'label' column.")
-    else:
-        # Check if 'label' column already exists (e.g., from a pre-processed file)
-        if 'label' not in df.columns:
-            logger.warning(f"Could not find a ground truth column ('Attack' or 'Label') for {file_type}. "
-                           "Performance metrics (precision/recall) may be inaccurate or fail.")
+    #     if normal_values:
+    #         # Ensure the attack column is treated as a string for matching
+    #         df[attack_col] = df[attack_col].astype(str)
+    #         # Create the binary 'label' column: 1 if not a normal value, 0 otherwise
+    #         df['label'] = (~df[attack_col].str.strip().isin(normal_values)).astype(int)
+    #         logger.info(f"Created 'label' column for {file_type} from '{attack_col}'. "
+    #                     f"Attack count: {df['label'].sum()} / Total rows: {len(df)}")
+    #     else:
+    #         logger.warning(f"No definition for 'normal' values for file_type '{file_type}'. Could not create 'label' column.")
+    # else:
+    #     # Check if 'label' column already exists (e.g., from a pre-processed file)
+    #     if 'label' not in df.columns:
+    #         logger.warning(f"Could not find a ground truth column ('Attack' or 'Label') for {file_type}. "
+    #                        "Performance metrics (precision/recall) may be inaccurate or fail.")
         
     return df
 

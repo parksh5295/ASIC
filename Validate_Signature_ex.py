@@ -333,6 +333,10 @@ def load_dataset(file_type):
         dataset_info = Dataset_infos.get(file_type, {})
         header_row = 0 if dataset_info.get('has_header', True) else None
         df = file_cut_GEN(file_type, dataset_path, 'all', header=header_row)
+        # --- DEBUG: Print columns to identify the ground truth column ---
+        if file_type in ['DARPA', 'DARPA98']:
+            logger.info(f"[DEBUG] Columns for DARPA98 dataset: {df.columns.tolist()}")
+        # --- END DEBUG ---
     except Exception as e:
         logger.error(f"Error loading data using file_cut_GEN for {dataset_path}: {e}")
         try:
@@ -367,7 +371,58 @@ def main(args):
     if data_df is None or data_df.empty:
         logger.error("Stopping due to failure in loading or processing dataset.")
         return
-        
+    
+    # --- Start: Specific and Centralized Labeling Logic ---
+    # This section ensures consistent and accurate labeling across different main scripts.
+    # It is placed here because the logic in dtype_optimize.py was too general.
+    logger.info(f"Applying specific labeling for file_type: {args.file_type}")
+    if args.file_type in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD']:
+        logger.warning(f"Labeling for {args.file_type} might need a specific function ('anomal_judgment_nonlabel'). Using placeholder.")
+        if 'Label' in data_df.columns:
+             data_df['label'] = data_df['Label']
+        else:
+             data_df['label'] = 0
+    elif args.file_type == 'netML':
+        data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+    elif args.file_type == 'DARPA98':
+        if 'Class' in data_df.columns:
+            data_df['label'] = data_df['Class'].apply(lambda x: 0 if str(x).strip() == '-' else 1)
+        elif 'attack' in data_df.columns: # Fallback for older file format
+            data_df['label'] = data_df['attack'].apply(lambda x: 0 if str(x).strip() == 'normal.' else 1)
+        else:
+            logger.error("Cannot find 'Class' or 'attack' column for DARPA98 labeling.")
+            data_df['label'] = 0
+    elif args.file_type in ['CICIDS2017', 'CICIDS']:
+        if 'Label' in data_df.columns:
+            data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'BENIGN' else 1)
+        else:
+            logger.error(f"ERROR: 'Label' column not found for {args.file_type}.")
+            data_df['label'] = 0
+    elif args.file_type in ['CICModbus23', 'CICModbus']:
+        data_df['label'] = data_df['Attack'].apply(lambda x: 0 if str(x).strip() == 'Baseline Replay: In position' else 1)
+    elif args.file_type in ['IoTID20', 'IoTID']:
+        data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip() == 'Normal' else 1)
+    elif args.file_type == 'Kitsune':
+        if 'Label' in data_df.columns:
+            data_df['label'] = data_df['Label']
+        else:
+            logger.error(f"ERROR: 'Label' column not found for {args.file_type}.")
+            data_df['label'] = 0
+    else:
+        logger.warning(f"WARNING: No specific labeling logic for {args.file_type}. Trying generic 'Label' -> 'BENIGN' mapping.")
+        if 'Label' in data_df.columns:
+            data_df['label'] = data_df['Label'].apply(lambda x: 0 if str(x).strip().upper() == 'BENIGN' else 1)
+        elif 'label' in data_df.columns:
+             logger.info("Using existing 'label' column.")
+        else:
+            logger.error(f"Cannot determine labeling for {args.file_type}. Defaulting all to label 0.")
+            data_df['label'] = 0
+            
+    logger.info("Labeling complete.")
+    if 'label' in data_df.columns:
+        logger.info(f"Value counts in 'label' column:\n{data_df['label'].value_counts()}")
+    # --- End: Specific Labeling Logic ---
+
     logger.info("--- Mapping raw data to group IDs ---")
     group_mapped_df = map_data_using_category_mapping(data_df, category_mapping, file_type=args.file_type)
 
