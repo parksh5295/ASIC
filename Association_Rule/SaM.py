@@ -106,7 +106,7 @@ def generate_sam_rules_for_itemset_task(f_itemset, min_conf, sam_miner_get_suppo
     
     return f_itemset if found_strong_rule else None
 
-def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
+def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
     print(f"    [Debug SaM Init] Algorithm: SaM (Split and Merge), Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
@@ -207,6 +207,12 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None):
 
     level_count = 1
     while current_level_itemsets:
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD', 'CICIDS2017', 'CICIDS', 'Kitsune', 'CICModbus23', 'CICModbus', 'IoTID20', 'IoTID', 'netML', 'DARPA98', 'DARPA'] and \
+            max_level_limit is not None and \
+            level_count > max_level_limit:
+            print(f"    [Debug SaM MergeLoop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking SaM loop.")
+            break
+
         if not current_level_itemsets:
             print(f"    [Debug SaM MergeLoop-{level_count}] current_level_itemsets is empty. Breaking.")
             break

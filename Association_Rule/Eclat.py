@@ -37,7 +37,7 @@ def get_confidence_optimized(tid_map, base, full):
 
 
 # Helper function for Eclat parallel subtree processing
-def process_eclat_subtree(prefix_itemset, items_to_process_with_tids, min_support, confidence_threshold, tid_map_global, total_transactions_global):
+def process_eclat_subtree(prefix_itemset, items_to_process_with_tids, min_support, confidence_threshold, tid_map_global, total_transactions_global, file_type_for_limit, max_level_limit):
     # This function will perform the Eclat logic for a given starting prefix and its associated items/TID lists.
     # It needs access to global tid_map (or relevant parts) and total_transactions.
     # Note: tid_map here is the full map, get_support_optimized uses it.
@@ -171,13 +171,22 @@ def process_eclat_subtree(prefix_itemset, items_to_process_with_tids, min_suppor
                     potential_next_extensions.append((next_item_to_combine_fset, new_combined_tids))
             
             if potential_next_extensions:
-                stack.append((new_itemset_formed, potential_next_extensions))
+                # Level limit check before adding to stack
+                # The new itemset to be formed would be of size: len(new_itemset_formed) + 1
+                next_level_size = len(new_itemset_formed) + 1
+                if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD', 'CICIDS2017', 'CICIDS', 'Kitsune', 'CICModbus23', 'CICModbus', 'IoTID20', 'IoTID', 'netML', 'DARPA98', 'DARPA'] and \
+                    max_level_limit is not None and \
+                    next_level_size > max_level_limit:
+                    # print(f"    [Debug Eclat Subtree] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Not adding level {next_level_size} to stack.")
+                    pass # Do not add to stack
+                else:
+                    stack.append((new_itemset_formed, potential_next_extensions))
                 
     return local_frequent_itemsets, local_rule_set
             
 
 # Eclat Algorithm: Finding infrequent itemsets using set intersection operations
-def eclat(df, min_support=0.5, confidence_threshold=0.8, num_processes=None):
+def eclat(df, min_support=0.5, confidence_threshold=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
     print(f"    [Debug Eclat Init] Algorithm: Eclat, Input df shape: {df.shape}, min_support={min_support}, confidence_threshold={confidence_threshold}, num_processes={num_processes}")
@@ -251,7 +260,9 @@ def eclat(df, min_support=0.5, confidence_threshold=0.8, num_processes=None):
                 min_support, 
                 confidence_threshold, 
                 tid_map, # global tid_map
-                tid_map['total'] # global total_transactions
+                tid_map['total'], # global total_transactions
+                file_type_for_limit,
+                max_level_limit
             ))
 
     print(f"    [Debug Eclat Parallel] Starting parallel processing for {len(tasks)} subtrees using {num_processes} processes...")

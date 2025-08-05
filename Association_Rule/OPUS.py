@@ -162,7 +162,7 @@ def opus(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
     
     level_count = 1
     while current_level_itemsets:
-        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD'] and \
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD', 'CICIDS2017', 'CICIDS', 'Kitsune', 'CICModbus23', 'CICModbus', 'IoTID20', 'IoTID', 'netML', 'DARPA98', 'DARPA'] and \
             max_level_limit is not None and \
             level_count > max_level_limit:
             print(f"    [Debug OPUS Loop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking OPUS loop.")

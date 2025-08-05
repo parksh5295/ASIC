@@ -42,6 +42,7 @@ LEVEL_LIMITS_BY_FILE_TYPE = {
     'IoTID20': None,
     'IoTID': None,
     'netML': 5,
+    'Kitsune': 5,
     'default': None
 }
 

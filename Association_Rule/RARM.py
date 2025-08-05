@@ -134,7 +134,7 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
 
     while current_level and len(next(iter(current_level))) < max_itemset_size:
         # Add level limit check here
-        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD'] and \
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD', 'CICIDS2017', 'CICIDS', 'Kitsune', 'CICModbus23', 'CICModbus', 'IoTID20', 'IoTID', 'netML', 'DARPA98', 'DARPA'] and \
             max_level_limit is not None and \
             level_count > max_level_limit:
             print(f"    [Debug RARM Loop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking RARM loop.")

@@ -66,7 +66,7 @@ def generate_hmine_rules_for_itemset_task(f_itemset, min_conf, h_struct_get_supp
     
     return f_itemset if found_strong_rule else None
 
-def h_mine(df, min_support=0.5, min_confidence=0.8, num_processes=None):
+def h_mine(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
     print(f"    [Debug H-Mine Init] Algorithm: H-Mine, Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
@@ -107,6 +107,12 @@ def h_mine(df, min_support=0.5, min_confidence=0.8, num_processes=None):
     max_itemset_size = len(df.columns) if not df.empty else len(frequent_items)
 
     while current_level_itemsets and len(current_level_itemsets[0]) < max_itemset_size:
+        if file_type_for_limit in ['MiraiBotnet', 'NSL-KDD', 'NSL_KDD', 'CICIDS2017', 'CICIDS', 'Kitsune', 'CICModbus23', 'CICModbus', 'IoTID20', 'IoTID', 'netML', 'DARPA98', 'DARPA'] and \
+            max_level_limit is not None and \
+            level_count > max_level_limit:
+            print(f"    [Debug H-Mine Loop-{level_count}] Reached max_level_limit ({max_level_limit}) for file_type '{file_type_for_limit}'. Breaking H-Mine loop.")
+            break
+
         if not current_level_itemsets: 
             print(f"    [Debug H-Mine Loop-{level_count}] current_level_itemsets is empty. Breaking.")
             break
