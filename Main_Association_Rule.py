@@ -279,6 +279,8 @@ def main():
         min_support = 0.01
     elif file_type in ['DARPA98', 'DARPA']:
         min_support = 0.01
+    elif file_type in ['CICIDS2017', 'CICIDS', 'Kitsune']:
+        min_support = 0.05
     else:
         min_support = 0.2
 
@@ -296,7 +298,7 @@ def main():
     # Considering anomalies and nomals simultaneously
     
     if file_type in ['CICIDS2017', 'CICIDS', 'Kitsune']:
-        confidence_values = [0.05]
+        confidence_values = [0.1]
     elif file_type in ['CICModbus23', 'CICModbus']:
         confidence_values = np.arange(0.1, 0.96, 0.05)
     # elif file_type in ['NSL-KDD', 'NSL_KDD']:
