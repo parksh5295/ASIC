@@ -140,6 +140,7 @@ def generate_fake_fp_signatures(file_type, file_number, category_mapping, data_l
                             mapped_series = _apply_categorical_mapping_for_fake_sigs(data_series, current_rule_series_for_col, feature_name=col_name)
                         else:
                             logger.warning(f"    Could not determine rule type for {col_name} from rule: '{first_rule}'. All values for this column will be NA.")
+                            # mapped_series is already initialized with NAs, so no action needed here.
                     else:
                         logger.warning(f"    No valid rules found for {col_name}. All values for this column will be NA.")
                     

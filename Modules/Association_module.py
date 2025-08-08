@@ -31,19 +31,19 @@ def association_module(df, association_rule_choose, min_support, min_confidence,
         association_list = FPGrowth_rule(df, min_support, min_confidence, association_metric) # mlxtend
     elif association_rule_choose in ['Eclat', 'eclat']:
         print(f"  [Debug]     Calling eclat function...")
-        association_list = eclat(df, min_support, min_confidence, num_processes=num_processes)
+        association_list = eclat(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['rarm', 'RARM']:
         print(f"  [Debug]     Calling rarm function...")
         association_list = rarm(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['h_mine', 'H_mine']:
         print(f"  [Debug]     Calling h_mine function...")
-        association_list = h_mine(df, min_support, min_confidence, num_processes=num_processes)
+        association_list = h_mine(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['opus', 'OPUS']:
         print(f"  [Debug]     Calling opus function...")
         association_list = opus(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     elif association_rule_choose in ['sam', 'SaM']:
         print(f"  [Debug]     Calling sam function...")
-        association_list = sam(df, min_support, min_confidence, num_processes=num_processes)
+        association_list = sam(df, min_support, min_confidence, num_processes=num_processes, file_type_for_limit=file_type_for_limit, max_level_limit=max_level_limit)
     else:
         print("The name of the association rule appears to be incorrect.")
         pass
