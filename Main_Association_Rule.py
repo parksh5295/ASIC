@@ -279,8 +279,10 @@ def main():
         min_support = 0.01
     elif file_type in ['DARPA98', 'DARPA']:
         min_support = 0.01
-    elif file_type in ['CICIDS2017', 'CICIDS', 'Kitsune']:
+    elif file_type in ['Kitsune']:
         min_support = 0.05
+    elif file_type in ['CICIDS2017', 'CICIDS']:
+        min_support = 0.01
     else:
         min_support = 0.2
 
