@@ -78,22 +78,44 @@ def calculate_global_support_sam(item_set, item_tids_global, total_transactions_
     support = len(common_tids) / total_transactions_global if total_transactions_global > 0 else 0
     return support, item_set
 
-# Helper function for parallel rule generation for SaM (similar to RARM's/OPUS's task)
-# Takes a single globally frequent itemset and checks if any rule derived from it meets min_confidence.
-# Returns the original frequent itemset if a strong rule is found, otherwise None.
-def generate_sam_rules_for_itemset_task(f_itemset, min_conf, sam_miner_get_support_func):
+# NEW: Worker initializer and globals for parallel rule generation
+_GLOBAL_ITEM_TIDS = None
+_GLOBAL_TOTAL_TX = 0
+
+def _init_sam_worker(item_tids, total_tx):
+    """Initializes global variables for a worker process."""
+    global _GLOBAL_ITEM_TIDS, _GLOBAL_TOTAL_TX
+    _GLOBAL_ITEM_TIDS = item_tids
+    _GLOBAL_TOTAL_TX = total_tx
+
+def _support_from_globals(items):
+    """Calculates support using global TID map. For use in worker processes."""
+    if not items or not _GLOBAL_ITEM_TIDS or _GLOBAL_TOTAL_TX == 0:
+        return 0.0
+    
+    # Safeguard: ensure all items are in the map to prevent KeyErrors
+    if not all(item in _GLOBAL_ITEM_TIDS for item in items):
+        return 0.0
+        
+    common_tids = set.intersection(*(_GLOBAL_ITEM_TIDS[item] for item in items))
+    return len(common_tids) / _GLOBAL_TOTAL_TX
+
+
+# MODIFIED: Helper function for parallel rule generation for SaM.
+# It now uses global variables set by the initializer instead of receiving a function.
+def generate_sam_rules_for_itemset_task(f_itemset, min_conf):
     found_strong_rule = False
     if len(f_itemset) > 1:
         # We need the support of the full itemset (f_itemset) for confidence calculation.
-        support_f_itemset = sam_miner_get_support_func(f_itemset)
+        support_f_itemset = _support_from_globals(f_itemset)
 
         if support_f_itemset == 0: # Should not happen for a frequent itemset found globally
             return None
 
         for i in range(1, len(f_itemset)):
             for antecedent_tuple in combinations(f_itemset, i):
-                antecedent = frozenset(antecedent_tuple)
-                support_antecedent = sam_miner_get_support_func(antecedent)
+                antecedent = frozenset( antecedent_tuple)
+                support_antecedent = _support_from_globals(antecedent)
                 confidence = 0
                 if support_antecedent > 0:
                     confidence = support_f_itemset / support_antecedent
@@ -222,13 +244,24 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
         # Rule Generation from current_level_itemsets - NOW PARALLELIZED
         if current_level_itemsets: # Process rules if current_level is not empty
             print(f"    [Debug SaM MergeLoop-{level_count}] Generating rules from {len(current_level_itemsets)} (size {current_itemset_size}) globally frequent itemsets using {num_processes} processes...")
+            # MODIFIED: Task list no longer includes the bound method.
             rule_gen_tasks_sam = [
-                (itemset, min_confidence, miner.get_support) 
+                (itemset, min_confidence) 
                 for itemset in current_level_itemsets
             ]
             if rule_gen_tasks_sam:
-                with multiprocessing.Pool(processes=num_processes) as pool:
-                    results_validated_fitemsets_for_sam_rules = pool.starmap(generate_sam_rules_for_itemset_task, rule_gen_tasks_sam)
+                # MODIFIED: Pool is created with an initializer to set up worker-local global variables.
+                # This avoids pickling bound methods or large data structures for every task.
+                with multiprocessing.Pool(
+                    processes=num_processes,
+                    initializer=_init_sam_worker,
+                    initargs=(miner.item_tids, miner.transaction_count)
+                ) as pool:
+                    # The worker function now implicitly uses the initialized global variables.
+                    results_validated_fitemsets_for_sam_rules = pool.starmap(
+                        generate_sam_rules_for_itemset_task, 
+                        rule_gen_tasks_sam
+                    )
                 
                 for f_itemset_with_strong_rule in results_validated_fitemsets_for_sam_rules:
                     if f_itemset_with_strong_rule:
