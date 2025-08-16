@@ -64,9 +64,16 @@ def process_single_chunk_sam(chunk_df_as_list_of_transactions, min_support_for_c
     return chunk_processor.get_frequent_items()
 
 # Helper function for parallel global support calculation in SaM Merge phase
-def calculate_global_support_sam(item_set, item_tids_global, total_transactions_global):
+# MODIFIED: This function now uses global variables for TID map and transaction count,
+# set by the pool initializer, to avoid passing large objects for every task.
+def calculate_global_support_sam(item_set):
     if not item_set:
         return 0, item_set
+    
+    # Use the globally-scoped variables initialized in each worker process
+    item_tids_global = _GLOBAL_ITEM_TIDS
+    total_transactions_global = _GLOBAL_TOTAL_TX
+    
     # Ensure all items in item_set are in item_tids_global to prevent KeyError
     if not all(item in item_tids_global for item in item_set):
         # This case should ideally not happen if item_set comes from all_frequent_items_from_chunks
@@ -74,6 +81,7 @@ def calculate_global_support_sam(item_set, item_tids_global, total_transactions_
         # However, as a safeguard:
         # print(f"Warning: Item in {item_set} not found in global TIDs. Skipping support calc.")
         return 0, item_set 
+        
     common_tids = set.intersection(*(item_tids_global[item] for item in item_set))
     support = len(common_tids) / total_transactions_global if total_transactions_global > 0 else 0
     return support, item_set
@@ -202,14 +210,20 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
     globally_frequent_1_itemsets_candidates = list(all_frequent_items_from_chunks) # Convert to list for tasks
     globally_frequent_1_itemsets_tuples = set() # Store as frozenset([item])
     
+    # MODIFIED: Task list no longer includes the large item_tids and transaction_count objects.
     merge_phase_L1_tasks = [
-        (frozenset([item]), miner.item_tids, miner.transaction_count) 
+        (frozenset([item]),) 
         for item in globally_frequent_1_itemsets_candidates
     ]
 
     if merge_phase_L1_tasks:
         print(f"    [Debug SaM MergePhase] Checking global support for {len(merge_phase_L1_tasks)} L1 candidates using {num_processes} processes...")
-        with multiprocessing.Pool(processes=num_processes) as pool:
+        # MODIFIED: Pool is created with an initializer to safely share read-only data with workers.
+        with multiprocessing.Pool(
+            processes=num_processes,
+            initializer=_init_sam_worker,
+            initargs=(miner.item_tids, miner.transaction_count)
+        ) as pool:
             l1_results = pool.starmap(calculate_global_support_sam, merge_phase_L1_tasks)
         
         for support, item_fset in l1_results:
@@ -310,14 +324,20 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
         
         # Parallel support calculation for these potential_merge_candidates
         next_level_itemsets_from_merge = set()
+        # MODIFIED: Task list no longer includes the large item_tids and transaction_count objects.
         merge_phase_Lk_tasks = [
-            (cand, miner.item_tids, miner.transaction_count) 
+            (cand,) 
             for cand in potential_merge_candidates
         ]
 
         if merge_phase_Lk_tasks:
             print(f"    [Debug SaM MergeLoop-{level_count}] Checking global support for {len(merge_phase_Lk_tasks)} L{level_count+1} candidates using {num_processes} processes...")
-            with multiprocessing.Pool(processes=num_processes) as pool:
+            # MODIFIED: Pool is created with an initializer to safely share read-only data with workers.
+            with multiprocessing.Pool(
+                processes=num_processes,
+                initializer=_init_sam_worker,
+                initargs=(miner.item_tids, miner.transaction_count)
+            ) as pool:
                 lk_results = pool.starmap(calculate_global_support_sam, merge_phase_Lk_tasks)
             
             for support, item_fset_cand in lk_results:
