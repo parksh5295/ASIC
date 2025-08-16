@@ -9,8 +9,12 @@ import pandas as pd # Add pandas for Timestamp if not already there (it seems to
 
 # Helper function for parallel support calculation
 # Needs to be defined at the top level or be picklable by multiprocessing
-# It will take the miner's item_tids and transaction_count along with a candidate itemset
-def calculate_support_for_candidate(item_tids, transaction_count, candidate_itemset):
+# MODIFIED: This function now uses global variables set by the initializer.
+def calculate_support_for_candidate(candidate_itemset):
+    # Use the globally-scoped variables initialized in each worker process
+    item_tids = _GLOBAL_ITEM_TIDS_RARM
+    transaction_count = _GLOBAL_TOTAL_TX_RARM
+
     if not candidate_itemset:
         return 0, candidate_itemset # Return itemset for consistency if starmap expects it
     # Ensure all items in 'candidate_itemset' are present in item_tids to avoid KeyError
@@ -24,41 +28,48 @@ def calculate_support_for_candidate(item_tids, transaction_count, candidate_item
     support = len(common_tids) / transaction_count if transaction_count > 0 else 0
     return support, candidate_itemset
 
+# NEW: Worker initializer and globals for RARM parallel rule generation
+_GLOBAL_ITEM_TIDS_RARM = None
+_GLOBAL_TOTAL_TX_RARM = 0
 
-# Helper function for parallel rule generation for a single frequent itemset
-def generate_rules_for_itemset_task(f_itemset, min_confidence, item_tids, transaction_count):
-    # rules_found_for_this_itemset = set() # No longer returning antecedents
-    found_strong_rule = False
+def _init_rarm_worker(item_tids, total_tx):
+    """Initializes global variables for a RARM worker process."""
+    global _GLOBAL_ITEM_TIDS_RARM, _GLOBAL_TOTAL_TX_RARM
+    _GLOBAL_ITEM_TIDS_RARM = item_tids
+    _GLOBAL_TOTAL_TX_RARM = total_tx
+
+def _support_from_globals_rarm(items):
+    """Calculates support using global TID map. For use in RARM worker processes."""
+    if not items or not _GLOBAL_ITEM_TIDS_RARM or _GLOBAL_TOTAL_TX_RARM == 0:
+        return 0.0
+    
+    # Safeguard: ensure all items are in the map to prevent KeyErrors
+    if not all(item in _GLOBAL_ITEM_TIDS_RARM for item in items):
+        return 0.0
+        
+    common_tids = set.intersection(*(_GLOBAL_ITEM_TIDS_RARM[item] for item in items))
+    return len(common_tids) / _GLOBAL_TOTAL_TX_RARM
+
+# Helper function for parallel rule generation (OPUS/H-Mine/RARM share this)
+# MODIFIED: It now uses global variables set by the initializer instead of receiving a function.
+def generate_rules_for_itemset_task(f_itemset, min_conf):
+    rules = []
     if len(f_itemset) > 1:
-        support_f_itemset, _ = calculate_support_for_candidate(item_tids, transaction_count, f_itemset)
+        support_f_itemset = _support_from_globals_rarm(f_itemset)
+        if support_f_itemset == 0:
+            return rules
 
-        if support_f_itemset == 0: # Should not happen for a frequent itemset, but as a safe guard
-            # return rules_found_for_this_itemset
-            return None
-
-        for i in range(1, len(f_itemset)): # Iterate through possible sizes of antecedent
+        for i in range(1, len(f_itemset)):
             for antecedent_tuple in combinations(f_itemset, i):
                 antecedent = frozenset(antecedent_tuple)
+                support_antecedent = _support_from_globals_rarm(antecedent)
                 
-                support_antecedent, _ = calculate_support_for_candidate(item_tids, transaction_count, antecedent)
-
-                confidence = 0
                 if support_antecedent > 0:
-                    # Confidence = P(Consequent | Antecedent) = Support(Full Itemset) / Support(Antecedent)
-                    confidence = support_f_itemset / support_antecedent 
-                
-                if confidence >= min_confidence:
-                    # Store the antecedent (LHS of the rule A -> F-A)
-                    # rules_found_for_this_itemset.add(antecedent)
-                    found_strong_rule = True
-                    break # Found one strong rule, no need to check others for this f_itemset
-            if found_strong_rule:
-                break
-    
-    if found_strong_rule:
-        return f_itemset # Return the full frequent itemset
-    else:
-        return None # No strong rule found for this itemset
+                    confidence = support_f_itemset / support_antecedent
+                    if confidence >= min_conf:
+                        consequent = f_itemset - antecedent
+                        rules.append((antecedent, consequent, confidence, support_f_itemset))
+    return rules
 
 
 class RARMiner:
@@ -176,13 +187,17 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
         
         # Parallel support calculation for candidates
         # Prepare arguments for the worker function.
-        # miner.item_tids and miner.transaction_count are shared.
-        # Convert set to list for chunking/distribution if necessary, though starmap handles iterables.
-        tasks = [(miner.item_tids, miner.transaction_count, cand) for cand in potential_next_level_candidates]
+        # MODIFIED: Task list no longer includes the large, repetitive data objects.
+        tasks = [(cand,) for cand in potential_next_level_candidates]
 
         if tasks:
             print(f"    [Debug RARM Loop-{level_count}] Calculating support for {len(tasks)} candidates using {num_processes} processes...")
-            with multiprocessing.Pool(processes=num_processes) as pool:
+            # MODIFIED: Pool is created with an initializer to safely share read-only data with workers.
+            with multiprocessing.Pool(
+                processes=num_processes,
+                initializer=_init_rarm_worker,
+                initargs=(miner.item_tids, miner.transaction_count)
+            ) as pool:
                 # Results will be a list of (support, itemset) tuples
                 results = pool.starmap(calculate_support_for_candidate, tasks)
             
@@ -195,44 +210,46 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
         print(f"    [Debug RARM Loop-{level_count}] Found {len(next_level_frequent_itemsets)} frequent itemsets for the next level.")
 
         # Rule generation from newly found frequent itemsets (next_level_frequent_itemsets)
-        # This part is kept sequential for now but can also be parallelized if it's a bottleneck.
         if next_level_frequent_itemsets:
             print(f"    [Debug RARM Loop-{level_count}] Generating rules from {len(next_level_frequent_itemsets)} frequent itemsets using {num_processes} processes for rule generation...")
-            
-            tasks_rule_gen = []
-            for f_set in next_level_frequent_itemsets:
-                tasks_rule_gen.append((f_set, min_confidence, miner.item_tids, miner.transaction_count))
+            # MODIFIED: Task list no longer includes the bound method.
+            rule_gen_tasks = [
+                (itemset, min_confidence) 
+                for itemset in next_level_frequent_itemsets
+            ]
+            if rule_gen_tasks:
+                # MODIFIED: Pool is created with an initializer to safely share read-only data with workers.
+                with multiprocessing.Pool(
+                    processes=num_processes,
+                    initializer=_init_rarm_worker,
+                    initargs=(miner.item_tids, miner.transaction_count)
+                ) as pool:
+                    # The worker function now implicitly uses the initialized global variables.
+                    results_from_rule_gen = pool.starmap(
+                        generate_rules_for_itemset_task, 
+                        rule_gen_tasks
+                    )
 
-            if tasks_rule_gen:
-                with multiprocessing.Pool(processes=num_processes) as pool:
-                    # results_rules_antecedents_sets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
-                    # The worker now returns the full f_itemset if a strong rule is found, or None
-                    results_validated_fitemsets = pool.starmap(generate_rules_for_itemset_task, tasks_rule_gen)
-                
-                # for antecedents_fset_collection in results_rules_antecedents_sets:
-                #     for antecedent_fset in antecedents_fset_collection:
-                #         if antecedent_fset: # Check if antecedent_fset is not None or empty, depending on worker
-                for f_itemset_with_strong_rule in results_validated_fitemsets:
-                    if f_itemset_with_strong_rule: # If the worker returned a frequent itemset (meaning a strong rule was found)
-                        # Convert the frozenset of "key=value" strings back to the original rule_dict format for storage
-                        rule_dict_temp = {}
-                        # for item_str in antecedent_fset: # OLD: iterating over antecedent
-                        for item_str in f_itemset_with_strong_rule: # NEW: iterating over the full frequent itemset
-                            key, value_str_annt = item_str.split('=', 1)
+                for rules_from_one_itemset in results_from_rule_gen:
+                    for antecedent, consequent, confidence, support in rules_from_one_itemset:
+                        # Convert to the required dictionary format for the final output
+                        rule_dict = {}
+                        full_itemset_for_dict = antecedent.union(consequent)
+                        for item_str in full_itemset_for_dict:
+                            key, value_str = item_str.split('=', 1)
                             try:
-                                val_flt = float(value_str_annt)
-                                if val_flt.is_integer():
-                                    rule_dict_temp[key] = int(val_flt)
-                                else:
-                                    rule_dict_temp[key] = val_flt
+                                val_float = float(value_str)
+                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
                             except ValueError:
-                                rule_dict_temp[key] = value_str_annt
-                        rule_set.add(tuple(sorted(rule_dict_temp.items()))) # Add tuple of sorted items
+                                rule_dict[key] = value_str
+                        
+                        rule_tuple = tuple(sorted(rule_dict.items()))
+                        rule_set.add(rule_tuple)
+            print(f"    [Debug RARM Loop-{level_count}] Rule set size after processing level {level_count}: {len(rule_set)}")
 
-            print(f"    [Debug RARM Loop-{level_count}] Rule set size after level {level_count}: {len(rule_set)}")
-        
+        # Prepare for the next level
         if not next_level_frequent_itemsets:
-            print(f"    [Debug RARM Loop-{level_count}] Next_level (frequent) is empty. Breaking loop.")
+            print(f"    [Debug RARM Loop-{level_count}] No more frequent itemsets found. Breaking loop.")
             break
         current_level = next_level_frequent_itemsets # Move to next level
         level_count += 1
