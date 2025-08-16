@@ -47,46 +47,47 @@ LEVEL_LIMITS_BY_FILE_TYPE = {
 }
 
 # Helper function for parallel processing
-def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, algo_num_processes, current_file_type):
+# MODIFIED: Added cores_per_algo_task as the last argument
+def process_confidence_iteration(min_confidence, anomal_grouped_data, nomal_grouped_data, Association_mathod, min_support, association_metric, group_mapped_df, signature_ea, precision_underlimit, cores_per_algo_task, current_file_type):
     """Processes a single iteration of the confidence loop."""
     iteration_start_time = time.time()
-    logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file_type='{current_file_type}', algo_procs={algo_num_processes}")
+    # logger.debug(f"DEBUG PCI: Entered for algo={Association_mathod}, conf={min_confidence}, support={min_support}, file_type='{current_file_type}', algo_procs={cores_per_algo_task}") # Original
+    print(f"  [PCI Start] conf={min_confidence}, algo={Association_mathod}, algo_procs={cores_per_algo_task}") # New, more concise log
 
-    print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {algo_num_processes} for {Association_mathod} on file_type: {current_file_type}")
+    # print(f"Processing for min_confidence: {min_confidence}, with algo_num_processes: {cores_per_algo_task} for {Association_mathod} on file_type: {current_file_type}") # Original
     
     max_level = LEVEL_LIMITS_BY_FILE_TYPE.get(current_file_type, LEVEL_LIMITS_BY_FILE_TYPE['default'])
     
-    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes, file_type_for_limit=current_file_type, max_level_limit=max_level)
-    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=algo_num_processes, file_type_for_limit=current_file_type, max_level_limit=max_level)
+    # MODIFIED: Pass the dynamically calculated cores_per_algo_task to the association_module
+    association_list_anomal = association_module(anomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=cores_per_algo_task, file_type_for_limit=current_file_type, max_level_limit=max_level)
+    association_list_nomal = association_module(nomal_grouped_data, Association_mathod, min_support, min_confidence, association_metric, num_processes=cores_per_algo_task, file_type_for_limit=current_file_type, max_level_limit=max_level)
     signatures = dict_list_difference(association_list_anomal, association_list_nomal)
-    print(f"  [DEBUG] Generated {len(signatures)} raw signatures before signature_evaluate.")
+    # print(f"  [DEBUG] Generated {len(signatures)} raw signatures before signature_evaluate.") # Original
 
     signature_result = signature_evaluate(group_mapped_df, signatures)
-    print(f"  [DEBUG] signature_evaluate returned {len(signature_result) if signature_result is not None else 0} items. Type: {type(signature_result)}")
+    # print(f"  [DEBUG] signature_evaluate returned {len(signature_result) if signature_result is not None else 0} items. Type: {type(signature_result)}") # Original
 
-    print(f"  [DEBUG] Calling under_limit with {len(signature_result) if signature_result is not None else 0} signatures...")
+    # print(f"  [DEBUG] Calling under_limit with {len(signature_result) if signature_result is not None else 0} signatures...") # Original
     signature_sets = under_limit(signature_result, signature_ea, precision_underlimit)
-    print(f"  [DEBUG] under_limit returned {len(signature_sets) if signature_sets is not None else 0} signature sets.")
+    # print(f"  [DEBUG] under_limit returned {len(signature_sets) if signature_sets is not None else 0} signature sets.") # Original
 
     if not signature_sets: # signature_sets is empty or None
-        print(f"  [DEBUG] signature_sets is empty or None after under_limit. Skipping recall calculation for confidence {min_confidence}.")
+        # print(f"  [DEBUG] signature_sets is empty or None after under_limit. Skipping recall calculation for confidence {min_confidence}.") # Original
         current_recall = 0 # Or an appropriate default value for recall when no sets
     else:
-        print(f"  [DEBUG] Calling calculate_signatures (for recall) with {len(signature_sets)} signature sets...")
+        # print(f"  [DEBUG] Calling calculate_signatures (for recall) with {len(signature_sets)} signature sets...") # Original
         current_recall = calculate_signatures(group_mapped_df, signature_sets)
-        print(f"  [DEBUG] calculate_signatures (for recall) returned: {current_recall}")
+        # print(f"  [DEBUG] calculate_signatures (for recall) returned: {current_recall}") # Original
 
     # Debug prints for this iteration (optional, can be removed for cleaner output)
-    print(f"  min_confidence: {min_confidence}")
-    print(f"    Anomal association rules: {len(association_list_anomal)}")
-    print(f"    Normal association rules: {len(association_list_nomal)}")
-    print(f"    Pure anomal signatures: {len(signatures)}")
-    print(f"    Evaluated signatures: {len(signature_result)}")
-    print(f"    Filtered signatures: {len(signature_sets) if signature_sets else 0}")
-    print(f"    Current recall: {current_recall}")
-
+    print(f"  [PCI Finish] conf: {min_confidence}, "
+          f"Anomal Rules: {len(association_list_anomal)}, "
+          f"Normal Rules: {len(association_list_nomal)}, "
+          f"Signatures: {len(signature_sets) if signature_sets else 0}, "
+          f"Recall: {current_recall:.4f}")
+    
     total_time_per_iteration = time.time() - iteration_start_time
-    logger.debug(f"DEBUG PCI: Preparing to return. Recall: {current_recall}, Total iteration time: {total_time_per_iteration:.2f}s")
+    # logger.debug(f"DEBUG PCI: Preparing to return. Recall: {current_recall}, Total iteration time: {total_time_per_iteration:.2f}s") # Original
     return min_confidence, current_recall, signature_sets, total_time_per_iteration
 
 def main():
@@ -331,23 +332,47 @@ def main():
 
     print("Starting parallel processing for confidence values...")
 
-    # Determine number of processes for the main pool (iterating over confidence values)
-    # Limit by the number of tasks or CPU cores, whichever is smaller.
+    # === NEW LOGIC for Hierarchical Parallelism ===
+    # This logic replaces the previous hardcoded or simple min() logic.
+    
+    # 1. Determine the number of parallel processes for the main (outer) pool.
+    # This is the number of confidence values we want to test in parallel.
+    # It should not exceed the number of available cores.
     num_confidence_tasks = len(confidence_values)
     available_cores = multiprocessing.cpu_count()
+    
+    # 2. Calculate the number of cores to be allocated to each internal algorithm task.
+    # The total available cores are distributed among the main pool's parallel tasks.
+    # At least 1 core is guaranteed for each task.
+    main_pool_procs = min(num_confidence_tasks, available_cores) if num_confidence_tasks > 0 else 1
+    
+    # 3. Calculate the number of cores to be allocated to each internal algorithm task.
+    # The total available cores are distributed among the main pool's parallel tasks.
+    # At least 1 core is guaranteed for each task.
+    cores_per_algo_task = max(1, available_cores // main_pool_procs if main_pool_procs > 0 else available_cores)
+
+    print("\n" + "="*50)
+    print("Parallelism Configuration:")
+    print(f"  - Available CPU cores: {available_cores}")
+    print(f"  - Number of confidence values to test: {num_confidence_tasks}")
+    print(f"  - Main pool size (parallel confidence tasks): {main_pool_procs}")
+    print(f"  - Cores allocated per internal algorithm: {cores_per_algo_task}")
+    print("="*50 + "\n")
+
+    # === OLD LOGIC - Kept as comments for reference ===
     # main_pool_procs = min(num_confidence_tasks, available_cores) if num_confidence_tasks > 0 else 1 # Original logic commented out
     
     # Force sequential processing for confidence values to prioritize internal algorithm parallelism
-    main_pool_procs = 1
+    # main_pool_procs = 1
     # print(f"Set main_pool_procs to 1 to prioritize internal algorithm parallelism.") # Redundant print, new prints below cover this
     
     # Internal algorithms will use all available cores
-    algo_internal_procs = available_cores 
+    # algo_internal_procs = available_cores 
     
-    print(f"Number of confidence values (tasks): {num_confidence_tasks}")
-    print(f"Available CPU cores: {available_cores}")
-    print(f"Main pool will run sequentially (main_pool_procs = {main_pool_procs}).")
-    print(f"Internal algorithms will use {algo_internal_procs} processes (algo_internal_procs).")
+    # print(f"Number of confidence values (tasks): {num_confidence_tasks}")
+    # print(f"Available CPU cores: {available_cores}")
+    # print(f"Main pool will run sequentially (main_pool_procs = {main_pool_procs}).")
+    # print(f"Internal algorithms will use {algo_internal_procs} processes (algo_internal_procs).")
 
     # Determine num_processes for internal algorithm parallelization (algo_internal_procs)
     # The following block is COMMENTED OUT as it's replaced by the logic above to prioritize internal parallelism.
@@ -362,6 +387,7 @@ def main():
     # 
     # print(f"Calculated algo_internal_procs (for each association algorithm): {algo_internal_procs}") # This print is now covered by the one above
 
+
     # Prepare arguments for the worker function (process_confidence_iteration)
     static_args = (
         anomal_grouped_data,
@@ -372,7 +398,7 @@ def main():
         group_mapped_df,
         signature_ea,
         precision_underlimit,
-        algo_internal_procs, # Pass the calculated number of processes for the algorithm
+        cores_per_algo_task, # MODIFIED: Pass the dynamically calculated number of cores for the algorithm
         file_type
     )
 

@@ -108,6 +108,11 @@ def _support_from_globals(items):
     common_tids = set.intersection(*(_GLOBAL_ITEM_TIDS[item] for item in items))
     return len(common_tids) / _GLOBAL_TOTAL_TX
 
+# NEW: Wrapper function for imap to handle multiple arguments for the rule generation task.
+def _sam_rule_worker_wrapper(args):
+    """Helper to unpack arguments for pool.imap_unordered."""
+    return generate_sam_rules_for_itemset_task(*args)
+
 
 # MODIFIED: Helper function for parallel rule generation for SaM.
 # It now uses global variables set by the initializer instead of receiving a function.
@@ -137,8 +142,14 @@ def generate_sam_rules_for_itemset_task(f_itemset, min_conf):
     return f_itemset if found_strong_rule else None
 
 def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_for_limit=None, max_level_limit=None):
+    # === MODIFIED: Process count handling ===
+    # If num_processes is not provided, use all available cores.
+    # Otherwise, use the number of processes passed as an argument.
+    # This allows the caller (e.g., Main_Association_Rule) to control the parallelism.
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
+    # === END MODIFICATION ===
+    
     print(f"    [Debug SaM Init] Algorithm: SaM (Split and Merge), Input df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}")
     start_time_total = pd.Timestamp.now()
 
@@ -224,11 +235,15 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
             initializer=_init_sam_worker,
             initargs=(miner.item_tids, miner.transaction_count)
         ) as pool:
-            l1_results = pool.starmap(calculate_global_support_sam, merge_phase_L1_tasks)
-        
-        for support, item_fset in l1_results:
-            if support >= min_support:
-                globally_frequent_1_itemsets_tuples.add(item_fset)
+            # MODIFIED: Use imap_unordered and consume the iterator *inside* the 'with' block to prevent deadlocks.
+            # Wrapper is not needed here since calculate_global_support_sam takes a single iterable argument.
+            # The task list needs to be just the itemsets, not tuples.
+            tasks = [frozenset([item]) for item in globally_frequent_1_itemsets_candidates]
+            results_iterator = pool.imap_unordered(calculate_global_support_sam, tasks, chunksize=1000)
+
+            for support, item_fset in results_iterator:
+                if support >= min_support:
+                    globally_frequent_1_itemsets_tuples.add(item_fset)
     
     # Original sequential L1 filtering (for reference)
     # globally_frequent_1_itemsets = {frozenset([item]) for item in all_frequent_items_from_chunks \
@@ -271,24 +286,25 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
                     initializer=_init_sam_worker,
                     initargs=(miner.item_tids, miner.transaction_count)
                 ) as pool:
-                    # The worker function now implicitly uses the initialized global variables.
-                    results_validated_fitemsets_for_sam_rules = pool.starmap(
-                        generate_sam_rules_for_itemset_task, 
-                        rule_gen_tasks_sam
+                    # MODIFIED: Use imap_unordered with a wrapper and consume inside the loop to prevent deadlocks.
+                    results_iterator = pool.imap_unordered(
+                        _sam_rule_worker_wrapper, 
+                        rule_gen_tasks_sam,
+                        chunksize=1000
                     )
                 
-                for f_itemset_with_strong_rule in results_validated_fitemsets_for_sam_rules:
-                    if f_itemset_with_strong_rule:
-                        rule_dict = {}
-                        for rule_item_str in f_itemset_with_strong_rule:
-                            key, value = rule_item_str.split('=', 1)
-                            try:
-                                val_float = float(value)
-                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
-                            except ValueError:
-                                rule_dict[key] = value
-                        rule_tuple = tuple(sorted(rule_dict.items()))
-                        rule_set.add(rule_tuple)
+                    for f_itemset_with_strong_rule in results_iterator:
+                        if f_itemset_with_strong_rule:
+                            rule_dict = {}
+                            for rule_item_str in f_itemset_with_strong_rule:
+                                key, value = rule_item_str.split('=', 1)
+                                try:
+                                    val_float = float(value)
+                                    rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                                except ValueError:
+                                    rule_dict[key] = value
+                            rule_tuple = tuple(sorted(rule_dict.items()))
+                            rule_set.add(rule_tuple)
             print(f"    [Debug SaM MergeLoop-{level_count}] Rule set size after processing level {current_itemset_size}: {len(rule_set)}")
 
         # Original sequential rule generation loop (now replaced by parallel version above)
@@ -326,8 +342,7 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
         next_level_itemsets_from_merge = set()
         # MODIFIED: Task list no longer includes the large item_tids and transaction_count objects.
         merge_phase_Lk_tasks = [
-            (cand,) 
-            for cand in potential_merge_candidates
+            cand for cand in potential_merge_candidates
         ]
 
         if merge_phase_Lk_tasks:
@@ -338,13 +353,14 @@ def sam(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_f
                 initializer=_init_sam_worker,
                 initargs=(miner.item_tids, miner.transaction_count)
             ) as pool:
-                lk_results = pool.starmap(calculate_global_support_sam, merge_phase_Lk_tasks)
+                # MODIFIED: Use imap_unordered and consume inside the loop to prevent deadlocks.
+                results_iterator = pool.imap_unordered(calculate_global_support_sam, merge_phase_Lk_tasks, chunksize=1000)
             
-            for support, item_fset_cand in lk_results:
-                if support >= min_support:
-                    next_level_itemsets_from_merge.add(item_fset_cand)
-                    if len(next_level_itemsets_from_merge) % 1000 == 0 and len(next_level_itemsets_from_merge) > 0:
-                        print(f"        [Debug SaM MergeLoop-{level_count}] Found candidate for next level (count {len(next_level_itemsets_from_merge)}): {item_fset_cand}, Support: {support:.4f}")
+                for support, item_fset_cand in results_iterator:
+                    if support >= min_support:
+                        next_level_itemsets_from_merge.add(item_fset_cand)
+                        if len(next_level_itemsets_from_merge) % 1000 == 0 and len(next_level_itemsets_from_merge) > 0:
+                            print(f"        [Debug SaM MergeLoop-{level_count}] Found candidate for next level (count {len(next_level_itemsets_from_merge)}): {item_fset_cand}, Support: {support:.4f}")
         
         next_level_candidates = next_level_itemsets_from_merge # Assign to the variable used later
 

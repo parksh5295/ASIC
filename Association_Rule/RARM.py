@@ -115,8 +115,14 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
     # Initialize RARM miner
     miner = RARMiner()
     
+    # === MODIFIED: Process count handling ===
+    # If num_processes is not provided, use all available cores.
+    # Otherwise, use the number of processes passed as an argument.
+    # This allows the caller (e.g., Main_Association_Rule) to control the parallelism.
     if num_processes is None:
         num_processes = multiprocessing.cpu_count()
+    # === END MODIFICATION ===
+
     # Updated debug log to include new parameters
     print(f"    [Debug RARM Init] Initializing RARM. df shape: {df.shape}, min_support={min_support}, min_confidence={min_confidence}, num_processes={num_processes}, file_type_for_limit='{file_type_for_limit}', max_level_limit={max_level_limit}")
 
@@ -188,9 +194,9 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
             print(f"    [Debug RARM Loop-{level_count}] No potential candidates generated. Breaking loop.")
             break
 
+        # Parallel support calculation for candidates
         next_level_frequent_itemsets = set()
         
-        # Parallel support calculation for candidates
         if potential_next_level_candidates:
             print(f"    [Debug RARM Loop-{level_count}] Calculating support for {len(potential_next_level_candidates)} candidates using {num_processes} processes...")
             with multiprocessing.Pool(
@@ -198,9 +204,8 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
                 initializer=_init_rarm_worker,
                 initargs=(miner.item_tids, miner.transaction_count)
             ) as pool:
-                # MODIFIED: Use imap_unordered to process results as they complete, saving memory vs. starmap.
-                # The task list is now just the iterable of candidates, not a list of single-element tuples.
-                results_iterator = pool.imap_unordered(calculate_support_for_candidate, potential_next_level_candidates)
+                # MODIFIED: Use imap_unordered and consume the iterator *inside* the 'with' block to prevent deadlocks.
+                results_iterator = pool.imap_unordered(calculate_support_for_candidate, potential_next_level_candidates, chunksize=1000)
             
                 for support, itemset_cand in results_iterator:
                     if support >= min_support:
@@ -225,27 +230,28 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
                     initializer=_init_rarm_worker,
                     initargs=(miner.item_tids, miner.transaction_count)
                 ) as pool:
-                    # MODIFIED: Use imap_unordered with a wrapper to save memory by processing rule results as an iterator.
+                    # MODIFIED: Consume the iterator *inside* the 'with' block to prevent deadlocks.
                     results_iterator = pool.imap_unordered(
                         _rarm_rule_worker_wrapper, 
-                        rule_gen_tasks
+                        rule_gen_tasks,
+                        chunksize=1000
                     )
 
-                for rules_from_one_itemset in results_iterator:
-                    for antecedent, consequent, confidence, support in rules_from_one_itemset:
-                        # Convert to the required dictionary format for the final output
-                        rule_dict = {}
-                        full_itemset_for_dict = antecedent.union(consequent)
-                        for item_str in full_itemset_for_dict:
-                            key, value_str = item_str.split('=', 1)
-                            try:
-                                val_float = float(value_str)
-                                rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
-                            except ValueError:
-                                rule_dict[key] = value_str
-                        
-                        rule_tuple = tuple(sorted(rule_dict.items()))
-                        rule_set.add(rule_tuple)
+                    for rules_from_one_itemset in results_iterator:
+                        for antecedent, consequent, confidence, support in rules_from_one_itemset:
+                            # Convert to the required dictionary format for the final output
+                            rule_dict = {}
+                            full_itemset_for_dict = antecedent.union(consequent)
+                            for item_str in full_itemset_for_dict:
+                                key, value_str = item_str.split('=', 1)
+                                try:
+                                    val_float = float(value_str)
+                                    rule_dict[key] = int(val_float) if val_float.is_integer() else val_float
+                                except ValueError:
+                                    rule_dict[key] = value_str
+                            
+                            rule_tuple = tuple(sorted(rule_dict.items()))
+                            rule_set.add(rule_tuple)
             print(f"    [Debug RARM Loop-{level_count}] Rule set size after processing level {level_count}: {len(rule_set)}")
 
         # Prepare for the next level
