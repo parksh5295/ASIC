@@ -50,6 +50,11 @@ def _support_from_globals_rarm(items):
     common_tids = set.intersection(*(_GLOBAL_ITEM_TIDS_RARM[item] for item in items))
     return len(common_tids) / _GLOBAL_TOTAL_TX_RARM
 
+# NEW: Wrapper function for imap to handle multiple arguments for the rule generation task.
+def _rarm_rule_worker_wrapper(args):
+    """Helper to unpack arguments for pool.imap_unordered."""
+    return generate_rules_for_itemset_task(*args)
+
 # Helper function for parallel rule generation (OPUS/H-Mine/RARM share this)
 # MODIFIED: It now uses global variables set by the initializer instead of receiving a function.
 def generate_rules_for_itemset_task(f_itemset, min_conf):
@@ -186,26 +191,22 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
         next_level_frequent_itemsets = set()
         
         # Parallel support calculation for candidates
-        # Prepare arguments for the worker function.
-        # MODIFIED: Task list no longer includes the large, repetitive data objects.
-        tasks = [(cand,) for cand in potential_next_level_candidates]
-
-        if tasks:
-            print(f"    [Debug RARM Loop-{level_count}] Calculating support for {len(tasks)} candidates using {num_processes} processes...")
-            # MODIFIED: Pool is created with an initializer to safely share read-only data with workers.
+        if potential_next_level_candidates:
+            print(f"    [Debug RARM Loop-{level_count}] Calculating support for {len(potential_next_level_candidates)} candidates using {num_processes} processes...")
             with multiprocessing.Pool(
                 processes=num_processes,
                 initializer=_init_rarm_worker,
                 initargs=(miner.item_tids, miner.transaction_count)
             ) as pool:
-                # Results will be a list of (support, itemset) tuples
-                results = pool.starmap(calculate_support_for_candidate, tasks)
+                # MODIFIED: Use imap_unordered to process results as they complete, saving memory vs. starmap.
+                # The task list is now just the iterable of candidates, not a list of single-element tuples.
+                results_iterator = pool.imap_unordered(calculate_support_for_candidate, potential_next_level_candidates)
             
-            for support, itemset_cand in results:
-                if support >= min_support:
-                    next_level_frequent_itemsets.add(itemset_cand)
-                    if len(next_level_frequent_itemsets) % 1000 == 0 and len(next_level_frequent_itemsets) > 0:
-                         print(f"        [Debug RARM Loop-{level_count}] Found frequent candidate for next level (count {len(next_level_frequent_itemsets)}): {itemset_cand}, Support: {support:.4f}")
+                for support, itemset_cand in results_iterator:
+                    if support >= min_support:
+                        next_level_frequent_itemsets.add(itemset_cand)
+                        if len(next_level_frequent_itemsets) % 1000 == 0 and len(next_level_frequent_itemsets) > 0:
+                             print(f"        [Debug RARM Loop-{level_count}] Found frequent candidate for next level (count {len(next_level_frequent_itemsets)}): {itemset_cand}, Support: {support:.4f}")
 
         print(f"    [Debug RARM Loop-{level_count}] Found {len(next_level_frequent_itemsets)} frequent itemsets for the next level.")
 
@@ -224,13 +225,13 @@ def rarm(df, min_support=0.5, min_confidence=0.8, num_processes=None, file_type_
                     initializer=_init_rarm_worker,
                     initargs=(miner.item_tids, miner.transaction_count)
                 ) as pool:
-                    # The worker function now implicitly uses the initialized global variables.
-                    results_from_rule_gen = pool.starmap(
-                        generate_rules_for_itemset_task, 
+                    # MODIFIED: Use imap_unordered with a wrapper to save memory by processing rule results as an iterator.
+                    results_iterator = pool.imap_unordered(
+                        _rarm_rule_worker_wrapper, 
                         rule_gen_tasks
                     )
 
-                for rules_from_one_itemset in results_from_rule_gen:
+                for rules_from_one_itemset in results_iterator:
                     for antecedent, consequent, confidence, support in rules_from_one_itemset:
                         # Convert to the required dictionary format for the final output
                         rule_dict = {}
